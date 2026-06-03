@@ -1,0 +1,16 @@
+.env
+.git
+.gitignore
+.smoketest/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.log
+pgdata/
+redisdata/
+frontend/node_modules/
+frontend/dist/
+README.md
+DEPLOYMENT.md
+ADMIN_MANUAL.md
+TESTING.md

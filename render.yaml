@@ -1,0 +1,59 @@
+# Render Blueprint — one Docker web service that runs the bot webhook + API + Mini App.
+# Deploy: push to GitHub, then Render → New → Blueprint → pick this repo.
+# Fill the `sync: false` secrets in the Render dashboard after first deploy.
+
+databases:
+  - name: zelion-db
+    plan: free
+
+services:
+  - type: redis
+    name: zelion-redis
+    plan: free
+    ipAllowList: []          # only reachable from Render services
+
+  - type: web
+    name: zeliontech-game
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: BOT_TOKEN
+        sync: false           # paste in dashboard
+      - key: ADMIN_IDS
+        value: "1087968824"
+      - key: BOT_USERNAME
+        value: ZelionTechGameBot
+      - key: APP_ENV
+        value: production
+      - key: USE_WEBHOOK
+        value: "true"
+      - key: WEBHOOK_BASE
+        value: https://zeliontech-game.onrender.com
+      - key: WEBHOOK_SECRET
+        generateValue: true
+      - key: MINIAPP_URL
+        value: https://zeliontech-game.onrender.com/app
+      - key: GROUP_CHAT_ID
+        value: "-1003423593105"
+      - key: TG_OFFICIAL_CHAT
+        value: "@zeliontechofficial"
+      - key: TG_GLOBAL_CHAT
+        value: "@zelionglobal"
+      - key: WEBSITE_URL
+        value: https://zeliontech.com
+      - key: AI_API_KEY
+        sync: false           # optional; empty => grounded fallback generator
+      - key: AI_MODEL
+        value: gpt-4o-mini
+      - key: DATABASE_URL
+        fromDatabase:
+          name: zelion-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: zelion-redis
+          property: connectionString
