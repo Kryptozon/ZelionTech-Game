@@ -14,13 +14,14 @@ log = logging.getLogger("zelion.jobs")
 
 def start_all(bot, pool, redis):
     asyncio.create_task(sla_reminder_loop(bot, pool))
+    asyncio.create_task(proof_delivery_retry_loop(bot, pool))
     asyncio.create_task(weekly_reset_loop(bot, pool, redis))
     if settings.SURGE_HOURS:
         asyncio.create_task(surge_scheduler_loop(bot, pool, redis))
 
 
 async def sla_reminder_loop(bot, pool):
-    """Hourly: ping admins about proofs pending past the 24h SLA."""
+    """Hourly: ping admins about overdue proofs."""
     while True:
         try:
             overdue = await psvc.overdue_pending(pool, hours=24)
@@ -29,13 +30,26 @@ async def sla_reminder_loop(bot, pool):
                     try:
                         await bot.send_message(
                             admin_id,
-                            f"⏰ <b>{len(overdue)} proof(s) overdue 24h.</b> Run /pending to review.",
+                            f"⏰ <b>{len(overdue)} proof(s) overdue 24h.</b> Run /pendingproofs to review.",
                         )
                     except Exception:
                         pass
         except Exception as e:
             log.warning("SLA loop error: %s", e)
         await asyncio.sleep(3600)
+
+
+async def proof_delivery_retry_loop(bot, pool):
+    """Every 2 min: re-attempt delivery of any proof the admin never received."""
+    while True:
+        try:
+            for r in await psvc.undelivered(pool, limit=20):
+                ok = await psvc.deliver(bot, pool, r["id"])
+                if ok:
+                    log.info("proof_retry_delivered pid=%s", r["id"])
+        except Exception as e:
+            log.warning("proof retry loop error: %s", e)
+        await asyncio.sleep(120)
 
 
 def _seconds_to_next_monday_utc():

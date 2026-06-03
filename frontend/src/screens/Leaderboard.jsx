@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
-import { Card, Spinner } from '../ui'
+import { Card, Spinner, Logo } from '../ui'
 
 export default function Leaderboard() {
   const [data, setData] = useState(null)
@@ -13,6 +13,10 @@ export default function Leaderboard() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center justify-center gap-2 py-1">
+        <Logo size={30} />
+        <div className="font-extrabold tracking-wide">ZELION <span className="text-gold">LEADERBOARD</span></div>
+      </div>
       <div className="flex gap-2">
         {['weekly', 'alltime'].map((t) => (
           <button key={t} onClick={() => setTab(t)}

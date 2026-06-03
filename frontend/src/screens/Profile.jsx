@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from 'react'
 import { api } from '../api'
-import { Card, Btn, Stat, Spinner, Progress } from '../ui'
+import { Card, Btn, Stat, Spinner, Progress, RankBadge } from '../ui'
 import { tg } from '../telegram'
 
 export default function Profile() {
   const [p, setP] = useState(null)
   const [ref, setRef] = useState(null)
+  const [qr, setQr] = useState(null)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     api.profile().then(setP).catch(() => {})
     api.referrals().then(setRef).catch(() => {})
+    api.quizRank().then(setQr).catch(() => {})
   }, [])
 
   const share = () => {
@@ -27,6 +29,15 @@ export default function Profile() {
 
   return (
     <div className="space-y-4">
+      <Card className="flex items-center justify-between">
+        <RankBadge rank={qr?.rank || 'Reactor Cadet'}
+          sub={qr?.next_rank ? `${qr.correct}/${qr.next_at} correct → ${qr.next_rank}` : `${qr?.correct ?? 0} correct`} />
+        <div className="text-right">
+          <div className="label">Quiz badge</div>
+          <div className="text-xs text-white/50">ZelionTech mastery</div>
+        </div>
+      </Card>
+
       <Card className="glow text-center">
         <div className="text-xl font-extrabold text-gold">{p.rank}</div>
         <div className="text-sm text-white/50">Level {p.level} · @{p.username || p.first_name}</div>

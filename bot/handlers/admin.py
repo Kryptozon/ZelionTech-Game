@@ -14,6 +14,7 @@ from ..services import analytics as analytics
 from ..services import events as esvc
 from ..services import redis_lb
 from ..services import kb as kbsvc
+from ..services import kb_doc
 from ..services import ai_quiz
 from ..services import quiz as quizsvc
 
@@ -40,8 +41,9 @@ async def cmd_admin(message: Message):
         "/broadcast — message all users\n"
         "/export — users CSV\n"
         "— <b>AI Quiz</b> —\n"
-        "/kbrefresh — crawl zeliontech.com into the knowledge base\n"
-        "/genquiz <code>[count] [difficulty]</code> — AI-generate grounded questions\n"
+        "/kbimport — import seed document(s) from /knowledge\n"
+        "/kbrefresh — rebuild KB from document(s) + zeliontech.com\n"
+        "/genquiz <code>[per]</code> — pre-generate &amp; approve grounded question batches\n"
         "/quizpending — review pending questions (/qok_ID · /qno_ID)"
     )
 
@@ -67,6 +69,44 @@ async def cmd_pending(message: Message, pool, bot):
                                  reply_markup=proof_review_kb(p["id"]))
         except Exception:
             await message.answer(caption, reply_markup=proof_review_kb(p["id"]))
+
+
+@router.message(Command("pendingproofs"))
+async def cmd_pendingproofs(message: Message, pool, bot):
+    if not _is_admin(message.from_user.id):
+        return
+    rows = await psvc.list_pending(pool, 25)
+    if not rows:
+        await message.answer("✅ No pending proofs.")
+        return
+    await message.answer(f"📨 <b>{len(rows)} pending proof(s)</b> — re-sending for review…")
+    for p in rows:
+        hrs = float(p["hours_pending"] or 0)
+        dur = f"{hrs:.1f}h" if hrs >= 1 else f"{int(hrs*60)}m"
+        await message.answer(
+            f"🧾 <b>Proof #{p['id']}</b>\n👤 @{p['username']} <code>{p['user_id']}</code>\n"
+            f"📡 {p['title']} ({p['platform']})\n🔗 <code>{p['claimed_handle']}</code>\n"
+            f"💎 {p['xp_reward']} ZP · ⏳ pending {dur}",
+            reply_markup=proof_review_kb(p["id"]),
+        )
+
+
+@router.message(Command("proofdiag"))
+async def cmd_proofdiag(message: Message, pool):
+    """Quick self-check that proof routing/admin config is healthy."""
+    if not _is_admin(message.from_user.id):
+        return
+    async with pool.acquire() as con:
+        pend = await con.fetchval("SELECT count(*) FROM proof_submissions WHERE status='pending'")
+        undel = await con.fetchval(
+            "SELECT count(*) FROM proof_submissions WHERE status='pending' AND delivered=false")
+    await message.answer(
+        f"🩺 <b>Proof diagnostics</b>\n"
+        f"Admin IDs: <code>{settings.ADMIN_IDS}</code>\n"
+        f"You are admin: {'✅' if _is_admin(message.from_user.id) else '❌'}\n"
+        f"Pending proofs: <b>{pend}</b> · undelivered: <b>{undel}</b>\n"
+        f"Retry job re-delivers undelivered proofs every 2 min."
+    )
 
 
 @router.message(Command("stats"))
@@ -157,33 +197,59 @@ async def cmd_weeklyreset(message: Message, pool, redis, bot):
     await message.answer(f"📅 Weekly board closed.\n{body}")
 
 
+@router.message(Command("kbimport"))
+async def cmd_kbimport(message: Message, pool):
+    if not _is_admin(message.from_user.id):
+        return
+    await message.answer("📄 Importing seed documents from /knowledge …")
+    docs = await kb_doc.import_all(pool)
+    names = ", ".join(docs["names"]) or "none found"
+    await message.answer(
+        f"✅ Document KB imported.\nFiles: <b>{docs['files']}</b> · "
+        f"Chunks: <b>{docs['chunks']}</b>\nSources: {names}"
+    )
+
+
 @router.message(Command("kbrefresh"))
 async def cmd_kbrefresh(message: Message, pool):
     if not _is_admin(message.from_user.id):
         return
-    await message.answer("🌐 Crawling zeliontech.com… this can take a minute.")
-    summary = await kbsvc.refresh(pool)
+    await message.answer("🔄 Rebuilding knowledge base from document(s) + zeliontech.com …")
+    docs = await kb_doc.import_all(pool)
+    site = await kbsvc.refresh(pool)
+    cats = await kbsvc.stats_by_category(pool)
+    top = "\n".join(f"• {c['category']} ({c['source_type']}): {c['c']}" for c in cats[:8])
     await message.answer(
-        f"✅ Knowledge base updated.\nPages: <b>{summary['pages']}</b> · "
-        f"Chunks: <b>{summary['chunks']}</b> · Visited: {summary['visited']}\n"
-        f"Now run /genquiz to generate questions."
+        f"✅ Knowledge base rebuilt.\n"
+        f"📄 Document chunks: <b>{docs['chunks']}</b> ({docs['files']} files)\n"
+        f"🌐 Website chunks: <b>{site['chunks']}</b> ({site['pages']} pages)\n\n"
+        f"<b>By category:</b>\n{top}\n\nNow run /genquiz to build the question bank."
     )
 
 
 @router.message(Command("genquiz"))
 async def cmd_genquiz(message: Message, pool):
+    """Pre-generate APPROVED quiz batches across types & difficulties (req #16)."""
     if not _is_admin(message.from_user.id):
         return
     parts = message.text.split()
-    count = int(parts[1]) if len(parts) > 1 else 5
-    difficulty = int(parts[2]) if len(parts) > 2 else 1
-    await message.answer(f"🤖 Generating {count} grounded questions (difficulty {difficulty})…")
-    res = await ai_quiz.generate(pool, count=count, difficulty=difficulty)
+    per = int(parts[1]) if len(parts) > 1 else 2
+    await message.answer(f"🤖 Pre-generating ~{per}×7 grounded questions (auto-approved)…")
+    plan = [(1, "mcq"), (1, "true_false"), (2, "scenario"), (2, "mcq"),
+            (3, "architecture"), (3, "tokenomics"), (4, "scenario")]
+    total, mode = 0, "-"
+    for diff, qtype in plan:
+        r = await ai_quiz.generate(pool, count=per, difficulty=diff, qtype=qtype, auto_approve=True)
+        total += r.get("inserted", 0)
+        mode = r.get("mode", mode)
+        if r.get("reason"):
+            await message.answer(f"⚠️ {r['reason']}")
+            return
+    a = await quizsvc.analytics(pool)
     await message.answer(
-        f"✅ Generated <b>{res.get('inserted', 0)}</b> question(s) "
-        f"(mode: {res.get('mode', '-')}). They are PENDING — review in the Mini App "
-        f"admin screen or with /quizpending."
-        + (f"\n⚠️ {res['reason']}" if res.get("reason") else "")
+        f"✅ Generated & approved <b>{total}</b> questions (mode: {mode}).\n"
+        f"Bank: {a['approved']} approved · {a['pending']} pending.\n"
+        f"Every question cites a ZelionTech source. Players can start now. 🧠"
     )
 
 

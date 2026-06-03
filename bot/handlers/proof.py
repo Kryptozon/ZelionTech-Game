@@ -53,20 +53,8 @@ async def proof_screenshot(message: Message, state: FSMContext, pool, bot):
         return
     m = await msvc.get_mission(pool, mid)
     await message.answer(PROOF_PENDING.format(xp=m["xp_reward"]), reply_markup=back_menu())
-
-    # Push to all admins for review
-    caption = (
-        f"🔔 <b>Proof #{pid} — pending</b>\n"
-        f"User: {message.from_user.full_name} (@{message.from_user.username}) "
-        f"<code>{message.from_user.id}</code>\n"
-        f"Mission: <b>{m['title']}</b> (+{m['xp_reward']}💎)\n"
-        f"Claimed handle: <code>{data['handle']}</code>"
-    )
-    for admin_id in settings.ADMIN_IDS:
-        try:
-            await bot.send_photo(admin_id, file_id, caption=caption, reply_markup=proof_review_kb(pid))
-        except Exception:
-            pass
+    # Reliable delivery to admins (logs failures; retry job covers any misses).
+    await psvc.deliver(bot, pool, pid)
 
 
 @router.message(ProofFlow.waiting_screenshot)
@@ -106,6 +94,33 @@ async def admin_approve(cb: CallbackQuery, pool, redis, bot):
             await bot.send_message(res["referrer"], REFERRAL_SUCCESS)
     except Exception:
         pass
+
+
+# ---------------- Admin: ban user ----------------
+@router.callback_query(F.data.startswith("padm:ban:"))
+async def admin_ban(cb: CallbackQuery, pool, bot):
+    if not settings.is_admin(cb.from_user.id):
+        await cb.answer("Not authorized.", show_alert=True)
+        return
+    pid = int(cb.data.split(":")[2])
+    from ..services import admin as asvc
+    async with pool.acquire() as con:
+        p = await con.fetchrow("SELECT user_id FROM proof_submissions WHERE id=$1", pid)
+        if not p:
+            await cb.answer("Not found.", show_alert=True)
+            return
+        # Reject the proof and ban the user (logged in admin_actions).
+        await con.execute(
+            "UPDATE proof_submissions SET status='rejected', reviewed_by=$1, "
+            "reject_reason='banned', reviewed_at=now() WHERE id=$2",
+            cb.from_user.id, pid,
+        )
+    await asvc.ban_user(pool, p["user_id"], cb.from_user.id, "Fraudulent proof")
+    try:
+        await cb.message.edit_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    await cb.answer("🚫 User banned & proof rejected.", show_alert=True)
 
 
 # ---------------- Admin: reject (asks reason) ----------------

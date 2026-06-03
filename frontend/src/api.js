@@ -21,6 +21,16 @@ async function req(path, opts = {}) {
 export const api = {
   me: () => req('/me'),
   claim: () => req('/claim-energy', { method: 'POST' }),
+
+  // tap-to-earn
+  tapState: () => req('/tap/state'),
+  tap: (taps, nonce) => req('/tap', { method: 'POST', body: JSON.stringify({ taps, nonce }) }),
+  upgrades: () => req('/upgrades'),
+  buyUpgrade: (code) => req(`/upgrades/${code}/buy`, { method: 'POST' }),
+  passive: () => req('/passive'),
+  claimPassive: () => req('/passive/claim', { method: 'POST' }),
+  tapMissions: () => req('/tap/missions'),
+  claimTapMission: (id) => req(`/tap/missions/${id}/claim`, { method: 'POST' }),
   missions: () => req('/missions'),
   completeMission: (id, answer_index) =>
     req(`/missions/${id}/complete`, { method: 'POST', body: JSON.stringify({ answer_index }) }),
@@ -34,6 +44,8 @@ export const api = {
   quizAnswer: (question_id, choice) =>
     req('/quiz/answer', { method: 'POST', body: JSON.stringify({ question_id, choice }) }),
   quizHistory: () => req('/quiz/history'),
+  quizDaily: () => req('/quiz/daily'),
+  quizRank: () => req('/quiz/rank'),
 
   adminProofs: () => req('/admin/proofs'),
   approveProof: (id) => req(`/admin/proofs/${id}/approve`, { method: 'POST' }),

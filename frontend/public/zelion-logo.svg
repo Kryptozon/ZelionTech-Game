@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 60 78" fill="none">
+  <defs>
+    <linearGradient id="zgold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffe79a"/>
+      <stop offset="0.5" stop-color="#f5c542"/>
+      <stop offset="1" stop-color="#c9881f"/>
+    </linearGradient>
+  </defs>
+  <!-- Bold angular Zelion "Z": top bar, thick diagonal (top-right -> bottom-left), bottom bar -->
+  <path d="M6 5 H55 L55 24 L23 24 L55 53 L55 73 H5 L5 54 L37 54 L5 25 Z"
+        fill="url(#zgold)" stroke="#fff3cf" stroke-opacity="0.45" stroke-width="0.8"
+        stroke-linejoin="round"/>
+</svg>

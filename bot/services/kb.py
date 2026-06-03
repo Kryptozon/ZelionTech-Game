@@ -7,6 +7,7 @@ import aiohttp
 from bs4 import BeautifulSoup
 
 from ..config import settings
+from . import categories
 
 CHUNK_SIZE = 600          # ~chars per chunk
 HEADERS = {"User-Agent": "ZelionReactorBot/1.0 (+https://zeliontech.com)"}
@@ -71,9 +72,9 @@ async def refresh(pool, max_pages: int | None = None):
 
             async with pool.acquire() as con:
                 page_id = await con.fetchval(
-                    """INSERT INTO knowledge_pages(url, title, fetched_at, last_updated)
-                       VALUES($1,$2, now(), now())
-                       ON CONFLICT (url) DO UPDATE SET title=$2, last_updated=now()
+                    """INSERT INTO knowledge_pages(url, title, source_type, fetched_at, last_updated)
+                       VALUES($1,$2,'website', now(), now())
+                       ON CONFLICT (url) DO UPDATE SET title=$2, source_type='website', last_updated=now()
                        RETURNING id""",
                     url, title or url,
                 )
@@ -81,8 +82,9 @@ async def refresh(pool, max_pages: int | None = None):
                 chunks = _chunk(text)
                 for i, c in enumerate(chunks):
                     await con.execute(
-                        "INSERT INTO knowledge_chunks(page_id, chunk_index, content) VALUES($1,$2,$3)",
-                        page_id, i, c,
+                        """INSERT INTO knowledge_chunks(page_id, chunk_index, content, category, source_type)
+                           VALUES($1,$2,$3,$4,'website')""",
+                        page_id, i, c, categories.classify(c),
                     )
                 saved_chunks += len(chunks)
             saved_pages += 1
@@ -104,12 +106,29 @@ async def stats(pool):
     return {"pages": pages, "chunks": chunks, "last_updated": last}
 
 
-async def sample_chunks(pool, n=8):
+async def sample_chunks(pool, n=8, category=None):
+    """Sample substantive chunks from BOTH document and website sources."""
     async with pool.acquire() as con:
+        if category:
+            return await con.fetch(
+                """SELECT c.id, c.content, c.category, c.source_type, p.url, p.title
+                   FROM knowledge_chunks c JOIN knowledge_pages p ON p.id=c.page_id
+                   WHERE length(c.content) > 120 AND c.category=$2
+                   ORDER BY random() LIMIT $1""",
+                n, category,
+            )
         return await con.fetch(
-            """SELECT c.id, c.content, p.url, p.title
+            """SELECT c.id, c.content, c.category, c.source_type, p.url, p.title
                FROM knowledge_chunks c JOIN knowledge_pages p ON p.id=c.page_id
                WHERE length(c.content) > 120
                ORDER BY random() LIMIT $1""",
             n,
+        )
+
+
+async def stats_by_category(pool):
+    async with pool.acquire() as con:
+        return await con.fetch(
+            "SELECT category, source_type, count(*) c FROM knowledge_chunks "
+            "GROUP BY category, source_type ORDER BY c DESC"
         )

@@ -5,7 +5,8 @@ from aiohttp import web
 from ..config import settings
 from .auth import validate_init_data
 from ..services import economy, users, missions as msvc, proof as psvc
-from ..services import leaderboard, redis_lb, quiz, kb, ai_quiz, analytics
+from ..services import leaderboard, redis_lb, quiz, kb, kb_doc, ai_quiz, analytics
+from ..services import tap as tapsvc, upgrades as upgsvc, tap_missions as tapmis
 
 
 # ---------------- auth helpers ----------------
@@ -54,6 +55,7 @@ async def me(request):
     u = await users.get_user(pool, uid)
     cur, cap = await economy.energy_status(pool, uid)
     nxt = economy.next_threshold(u["points"])
+    qrank = await quiz.quiz_rank(pool, uid)
     return web.json_response({
         "id": uid,
         "username": u["username"], "first_name": u["first_name"],
@@ -61,6 +63,8 @@ async def me(request):
         "points": u["points"], "energy": cur, "energy_cap": cap,
         "streak": u["streak_count"],
         "next_threshold": nxt[1] if nxt else None,
+        "quiz_rank": qrank["rank"], "quiz_correct": qrank["correct"],
+        "quiz_next_rank": qrank["next_rank"], "quiz_next_at": qrank["next_at"],
         "is_admin": settings.is_admin(uid),
     })
 
@@ -134,14 +138,7 @@ async def proof_submit(request):
     pid = await psvc.create_submission(pool, uid, mid, m["platform"], handle, None)
     if pid is None:
         return web.json_response({"error": "duplicate"}, status=409)
-    caption = (f"🔔 <b>Proof #{pid} (Mini App)</b>\nUser <code>{uid}</code>\n"
-               f"Mission: <b>{m['title']}</b> (+{m['xp_reward']}💎)\nHandle: <code>{handle}</code>")
-    from ..keyboards import proof_review_kb
-    for admin_id in settings.ADMIN_IDS:
-        try:
-            await bot.send_message(admin_id, caption, reply_markup=proof_review_kb(pid))
-        except Exception:
-            pass
+    await psvc.deliver(bot, pool, pid)
     return web.json_response({"status": "pending", "id": pid, "reward": m["xp_reward"]})
 
 
@@ -190,6 +187,63 @@ async def get_profile(request):
 
 
 # ============================================================
+# TAP-TO-EARN ENDPOINTS
+# ============================================================
+@authed
+async def tap_state(request):
+    return web.json_response(await tapsvc.get_state(request.app["pool"], request["user"]["id"]))
+
+
+@authed
+async def tap_do(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    body = await request.json()
+    taps = int(body.get("taps", 1))
+    nonce = str(body.get("nonce", ""))[:64] or "n"
+    return web.json_response(await tapsvc.tap(pool, redis, request["user"]["id"], taps, nonce))
+
+
+@authed
+async def upgrades_list(request):
+    return web.json_response(await upgsvc.list_for_user(request.app["pool"], request["user"]["id"]))
+
+
+@authed
+async def upgrade_buy(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    code = request.match_info["id"]
+    res = await upgsvc.buy(pool, redis, request["user"]["id"], code)
+    return web.json_response(res, status=(400 if res.get("error") else 200))
+
+
+@authed
+async def passive_get(request):
+    st = await tapsvc.get_state(request.app["pool"], request["user"]["id"])
+    return web.json_response({"pending": st["passive_pending"], "rate": st["passive_rate"],
+                             "cap_hours": st["passive_cap_hours"]})
+
+
+@authed
+async def passive_claim(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    return web.json_response(await tapsvc.claim_passive(pool, redis, request["user"]["id"]))
+
+
+@authed
+async def tap_missions_list(request):
+    return web.json_response({"missions": await tapmis.list_for_user(
+        request.app["pool"], request["user"]["id"])})
+
+
+@authed
+async def tap_mission_claim(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    mid = int(request.match_info["id"])
+    res = await tapmis.claim(pool, redis, request["user"]["id"], mid)
+    return web.json_response(res, status=(400 if res.get("error") else 200))
+
+
+# ============================================================
 # QUIZ ENDPOINTS
 # ============================================================
 @authed
@@ -212,6 +266,18 @@ async def quiz_answer(request):
 async def quiz_history(request):
     pool = request.app["pool"]
     return web.json_response({"history": await quiz.history(pool, request["user"]["id"])})
+
+
+@authed
+async def quiz_daily(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    return web.json_response(await quiz.daily_status(pool, redis, request["user"]["id"]))
+
+
+@authed
+async def quiz_rank(request):
+    pool = request.app["pool"]
+    return web.json_response(await quiz.quiz_rank(pool, request["user"]["id"]))
 
 
 # ============================================================
@@ -260,10 +326,20 @@ async def admin_proof_reject(request):
 @authed
 @admin_only
 async def admin_kb_refresh(request):
+    """Rebuild the KB from BOTH the seed document(s) and the live website,
+    then pre-generate a mixed batch of grounded questions (pending review)."""
     pool = request.app["pool"]
-    summary = await kb.refresh(pool)
-    gen = await ai_quiz.generate(pool, count=8, difficulty=1)
-    return web.json_response({"kb": summary, "generated": gen})
+    docs = await kb_doc.import_all(pool)
+    site = await kb.refresh(pool)
+    gen_total, plan = 0, [
+        (1, "mcq"), (1, "true_false"), (2, "mcq"), (2, "scenario"),
+        (3, "architecture"), (3, "tokenomics"), (4, "scenario"),
+    ]
+    for diff, qtype in plan:
+        r = await ai_quiz.generate(pool, count=2, difficulty=diff, qtype=qtype)
+        gen_total += r.get("inserted", 0)
+    return web.json_response({"documents": docs, "website": site,
+                              "generated": gen_total, "status": "pending review"})
 
 
 @authed
@@ -306,10 +382,21 @@ def setup_api(app: web.Application):
     r.add_get("/api/leaderboard", get_leaderboard)
     r.add_get("/api/referrals", get_referrals)
     r.add_get("/api/profile", get_profile)
+    # tap-to-earn
+    r.add_get("/api/tap/state", tap_state)
+    r.add_post("/api/tap", tap_do)
+    r.add_get("/api/upgrades", upgrades_list)
+    r.add_post("/api/upgrades/{id}/buy", upgrade_buy)
+    r.add_get("/api/passive", passive_get)
+    r.add_post("/api/passive/claim", passive_claim)
+    r.add_get("/api/tap/missions", tap_missions_list)
+    r.add_post("/api/tap/missions/{id}/claim", tap_mission_claim)
     # quiz
     r.add_get("/api/quiz/next", quiz_next)
     r.add_post("/api/quiz/answer", quiz_answer)
     r.add_get("/api/quiz/history", quiz_history)
+    r.add_get("/api/quiz/daily", quiz_daily)
+    r.add_get("/api/quiz/rank", quiz_rank)
     # admin
     r.add_get("/api/admin/proofs", admin_proofs)
     r.add_post("/api/admin/proofs/{id}/approve", admin_proof_approve)

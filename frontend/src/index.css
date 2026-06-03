@@ -43,3 +43,38 @@ body {
 
 .fade-in { animation: fade .25s ease both; }
 @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Reactor Core tap effects ---------- */
+.reactor-ring {
+  position: absolute; inset: 0; border-radius: 9999px;
+  border: 2px solid rgba(245,197,66,0.35);
+  box-shadow: 0 0 40px rgba(245,197,66,0.35), inset 0 0 40px rgba(245,197,66,0.15);
+}
+.reactor-pulse { animation: reactorPulse 2.2s ease-in-out infinite; }
+@keyframes reactorPulse {
+  0%,100% { transform: scale(1); box-shadow: 0 0 36px rgba(245,197,66,0.3), inset 0 0 36px rgba(245,197,66,0.12); }
+  50%     { transform: scale(1.03); box-shadow: 0 0 64px rgba(245,197,66,0.55), inset 0 0 52px rgba(245,197,66,0.22); }
+}
+.reactor-core { transition: transform .06s ease; }
+.reactor-core:active { transform: scale(0.94); }
+
+.tap-wave {
+  position: absolute; left: 50%; top: 50%; width: 40px; height: 40px;
+  border: 2px solid rgba(245,197,66,0.7); border-radius: 9999px;
+  transform: translate(-50%,-50%); pointer-events: none;
+  animation: wave .6s ease-out forwards;
+}
+@keyframes wave { to { width: 320px; height: 320px; opacity: 0; border-color: rgba(245,197,66,0); } }
+
+.float-zp {
+  position: absolute; pointer-events: none; font-weight: 900; color: #ffe488;
+  text-shadow: 0 0 10px rgba(245,197,66,0.8); animation: floatUp .9s ease-out forwards;
+}
+@keyframes floatUp { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(-70px) scale(1.4); } }
+
+.surge-flash { animation: surgeFlash .5s ease-out; }
+@keyframes surgeFlash { 0% { background: rgba(245,197,66,0.18); } 100% { background: transparent; } }
+
+.spark { position:absolute; width:3px; height:14px; background:linear-gradient(#fff,#f5c542);
+  border-radius:2px; pointer-events:none; animation: spark .5s ease-out forwards; }
+@keyframes spark { to { opacity:0; transform: translateY(-30px) rotate(20deg); } }

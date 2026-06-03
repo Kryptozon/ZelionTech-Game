@@ -29,18 +29,21 @@ class UserMiddleware(BaseMiddleware):
 
 
 class AntiSpamMiddleware(BaseMiddleware):
-    """Per-user debounce using Redis SET NX EX."""
+    """Per-user debounce for button taps only.
+
+    Messages are NOT debounced here — that previously dropped proof FSM steps
+    (handle text / screenshot photo), so proofs never reached admins. Message
+    flooding is handled by group anti-flood and per-feature limits instead.
+    """
 
     async def __call__(self, handler, event: TelegramObject, data: dict):
+        if not isinstance(event, CallbackQuery):
+            return await handler(event, data)
         user = getattr(event, "from_user", None)
         redis: Redis = data.get("redis")
-        # Do not debounce group chatter here (handled by group anti-flood instead).
-        if isinstance(event, Message) and event.chat and event.chat.type in ("group", "supergroup"):
-            return await handler(event, data)
         if user and redis:
             if not await redis.set(f"spam:{user.id}", "1", nx=True, ex=SPAM_TTL):
-                if isinstance(event, CallbackQuery):
-                    await event.answer(ANTICHEAT_WARNING, show_alert=False)
+                await event.answer(ANTICHEAT_WARNING, show_alert=False)
                 return
         return await handler(event, data)
 

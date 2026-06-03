@@ -96,5 +96,6 @@ def proof_review_kb(pid: int) -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.button(text="✅ Approve", callback_data=f"padm:approve:{pid}")
     kb.button(text="❌ Reject", callback_data=f"padm:reject:{pid}")
-    kb.adjust(2)
+    kb.button(text="🚫 Ban User", callback_data=f"padm:ban:{pid}")
+    kb.adjust(2, 1)
     return kb.as_markup()

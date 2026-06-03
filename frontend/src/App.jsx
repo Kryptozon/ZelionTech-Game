@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react'
 import { api } from './api'
-import { Logo, Spinner, Toast } from './ui'
-import Home from './screens/Home'
+import { Logo, Spinner, Toast, Splash } from './ui'
+import Tap from './screens/Tap'
+import Lab from './screens/Lab'
 import Missions from './screens/Missions'
 import Quiz from './screens/Quiz'
 import Leaderboard from './screens/Leaderboard'
@@ -9,8 +10,8 @@ import Profile from './screens/Profile'
 import Admin from './screens/Admin'
 
 const TABS = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'missions', label: 'Missions', icon: '🎯' },
+  { id: 'reactor', label: 'Reactor', icon: '⚛️' },
+  { id: 'lab', label: 'Lab', icon: '🛠' },
   { id: 'quiz', label: 'Quiz', icon: '🧠' },
   { id: 'ranks', label: 'Ranks', icon: '🏆' },
   { id: 'profile', label: 'Profile', icon: '👤' },
@@ -18,7 +19,7 @@ const TABS = [
 
 export default function App() {
   const [me, setMe] = useState(null)
-  const [tab, setTab] = useState('home')
+  const [tab, setTab] = useState('reactor')
   const [err, setErr] = useState('')
   const [toast, setToast] = useState(null)
 
@@ -32,29 +33,34 @@ export default function App() {
 
   if (err) return (
     <Center>
-      <Logo />
+      <Logo size={80} />
       <p className="mt-4 text-white/70 text-sm text-center">
         Couldn’t authenticate.<br />Open this from inside Telegram via <b>🎮 Open Zelion Reactor</b>.
       </p>
       <p className="mt-2 text-xs text-rose-400">{err}</p>
     </Center>
   )
-  if (!me) return <Center><Spinner /></Center>
+  if (!me) return <Center><Splash /></Center>
 
   const tabs = me.is_admin ? [...TABS, { id: 'admin', label: 'Admin', icon: '🛡' }] : TABS
 
   return (
     <div className="max-w-md mx-auto min-h-full pb-24">
       <header className="flex items-center gap-3 px-4 pt-4 pb-2">
-        <Logo sm />
-        <div>
+        <Logo size={34} />
+        <div className="flex-1">
           <div className="font-extrabold leading-tight">ZELION <span className="text-gold">REACTOR</span></div>
           <div className="text-[11px] text-white/40">Operator @{me.username || me.first_name}</div>
+        </div>
+        <div className="text-right">
+          <div className="label">Quiz rank</div>
+          <div className="text-xs font-bold text-gold">{me.quiz_rank}</div>
         </div>
       </header>
 
       <main className="px-4">
-        {tab === 'home' && <Home me={me} refresh={refresh} flash={flash} go={setTab} />}
+        {tab === 'reactor' && <Tap me={me} refresh={refresh} flash={flash} go={setTab} />}
+        {tab === 'lab' && <Lab refresh={refresh} flash={flash} />}
         {tab === 'missions' && <Missions refresh={refresh} flash={flash} />}
         {tab === 'quiz' && <Quiz me={me} refresh={refresh} flash={flash} />}
         {tab === 'ranks' && <Leaderboard />}

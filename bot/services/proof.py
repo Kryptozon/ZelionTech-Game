@@ -1,10 +1,15 @@
-"""Proof submission + admin approval pipeline."""
+"""Proof submission + admin approval pipeline + reliable admin delivery."""
+import logging
+import datetime as dt
 import asyncpg
 from .economy import award_points, maybe_activate_referral
+from ..config import settings
+
+log = logging.getLogger("zelion.proof")
 
 
 async def create_submission(pool, user_id, mission_id, platform, handle, file_id):
-    """Returns proof id, or None if a pending/approved submission already exists."""
+    """Create a pending proof (stores reward). Returns proof id, or None if duplicate."""
     async with pool.acquire() as con:
         existing = await con.fetchval(
             "SELECT 1 FROM proof_submissions WHERE user_id=$1 AND mission_id=$2 "
@@ -13,17 +18,76 @@ async def create_submission(pool, user_id, mission_id, platform, handle, file_id
         )
         if existing:
             return None
-        return await con.fetchval(
-            """INSERT INTO proof_submissions(user_id, mission_id, platform, claimed_handle, file_id, status)
-               VALUES($1,$2,$3,$4,$5,'pending') RETURNING id""",
-            user_id, mission_id, platform, handle, file_id,
+        reward = await con.fetchval("SELECT xp_reward FROM missions WHERE id=$1", mission_id) or 0
+        pid = await con.fetchval(
+            """INSERT INTO proof_submissions(user_id, mission_id, platform, claimed_handle, file_id,
+                                             status, reward, delivered)
+               VALUES($1,$2,$3,$4,$5,'pending',$6,false) RETURNING id""",
+            user_id, mission_id, platform, handle, file_id, reward,
+        )
+        log.info("proof_created pid=%s user=%s mission=%s platform=%s", pid, user_id, mission_id, platform)
+        return pid
+
+
+async def deliver(bot, pool, pid) -> bool:
+    """Send a proof to every admin with review buttons. Marks delivered on first success.
+    Used by the submit flows AND the retry job. Returns True if delivered."""
+    from ..keyboards import proof_review_kb
+    async with pool.acquire() as con:
+        p = await con.fetchrow(
+            """SELECT p.*, m.title, u.username, u.first_name
+               FROM proof_submissions p JOIN missions m ON m.id=p.mission_id
+               JOIN users u ON u.id=p.user_id WHERE p.id=$1""",
+            pid,
+        )
+    if not p:
+        return False
+    ts = p["created_at"].strftime("%Y-%m-%d %H:%M UTC") if p["created_at"] else "—"
+    caption = (
+        f"🔔 <b>NEW PROOF #{p['id']}</b> — pending review\n"
+        f"👤 User: {p['first_name'] or ''} (@{p['username'] or '—'})\n"
+        f"🆔 Telegram ID: <code>{p['user_id']}</code>\n"
+        f"📡 Mission/Platform: <b>{p['title']}</b> ({p['platform']})\n"
+        f"🔗 Submitted handle: <code>{p['claimed_handle'] or '—'}</code>\n"
+        f"💎 Reward: <b>{p['reward']} ZP</b>\n"
+        f"🕒 Submitted: {ts}\n"
+        f"🧾 Proof ID: <code>{p['id']}</code>"
+    )
+    kb = proof_review_kb(pid)
+    delivered = False
+    if not settings.ADMIN_IDS:
+        log.error("proof_deliver no ADMIN_IDS configured (pid=%s)", pid)
+    for admin_id in settings.ADMIN_IDS:
+        try:
+            if p["file_id"]:
+                await bot.send_photo(admin_id, p["file_id"], caption=caption, reply_markup=kb)
+            else:
+                await bot.send_message(admin_id, caption + "\n<i>(no screenshot — submitted via Mini App)</i>",
+                                       reply_markup=kb)
+            delivered = True
+            log.info("proof_delivered pid=%s admin=%s", pid, admin_id)
+        except Exception as e:
+            log.error("proof_deliver_failed pid=%s admin=%s err=%s", pid, admin_id, e)
+    if delivered:
+        async with pool.acquire() as con:
+            await con.execute("UPDATE proof_submissions SET delivered=true WHERE id=$1", pid)
+    return delivered
+
+
+async def undelivered(pool, limit=20):
+    async with pool.acquire() as con:
+        return await con.fetch(
+            "SELECT id FROM proof_submissions WHERE status='pending' AND delivered=false "
+            "ORDER BY created_at ASC LIMIT $1",
+            limit,
         )
 
 
 async def list_pending(pool, limit=20):
     async with pool.acquire() as con:
         return await con.fetch(
-            """SELECT p.*, m.title, m.xp_reward, u.username
+            """SELECT p.*, m.title, m.xp_reward, u.username,
+                      EXTRACT(EPOCH FROM (now()-p.created_at))/3600 AS hours_pending
                FROM proof_submissions p
                JOIN missions m ON m.id = p.mission_id
                JOIN users u ON u.id = p.user_id

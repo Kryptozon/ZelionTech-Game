@@ -1,10 +1,12 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { api } from '../api'
-import { Card, Btn, Stat, Progress } from '../ui'
+import { Card, Btn, Stat, Progress, Logo } from '../ui'
 import { hapticOk, hapticErr } from '../telegram'
 
 export default function Home({ me, refresh, flash, go }) {
   const [busy, setBusy] = useState(false)
+  const [daily, setDaily] = useState(null)
+  useEffect(() => { api.quizDaily().then(setDaily).catch(() => {}) }, [])
 
   const claim = async () => {
     setBusy(true)
@@ -54,8 +56,23 @@ export default function Home({ me, refresh, flash, go }) {
         </Btn>
       </Card>
 
+      {daily && !daily.empty && (
+        <button onClick={() => go('quiz')} className="card w-full text-left glow active:scale-[0.98] transition">
+          <div className="flex items-center gap-3">
+            <Logo size={38} />
+            <div className="flex-1">
+              <div className="font-bold">🗓 Daily Challenge {daily.completed && '✅'}</div>
+              <div className="text-[11px] text-white/45">
+                {daily.questions.filter((q) => q.answered).length}/{daily.questions.length} done · +{daily.bonus}💎 bonus
+              </div>
+            </div>
+            <span className="text-gold font-bold">Play →</span>
+          </div>
+        </button>
+      )}
+
       <div className="grid grid-cols-2 gap-3">
-        <Tile icon="🧠" title="Play Quiz" sub="Earn XP on ZelionTech" onClick={() => go('quiz')} />
+        <Tile icon="🧠" title="Play Quiz" sub="ZelionTech KB · 4 tiers" onClick={() => go('quiz')} />
         <Tile icon="🎯" title="Missions" sub="Follow & earn" onClick={() => go('missions')} />
         <Tile icon="🏆" title="Leaderboard" sub="Climb the ranks" onClick={() => go('ranks')} />
         <Tile icon="👥" title="Invite" sub="Recruit operators" onClick={() => go('profile')} />

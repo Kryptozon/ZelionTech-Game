@@ -1,6 +1,12 @@
 import React from 'react'
 
-export const Logo = ({ sm }) => <div className={`zlogo ${sm ? 'zlogo-sm' : ''}`}>Z</div>
+// The uploaded ZelionTech gold Z. Drop a /public/zelion-logo.png to override the SVG.
+const LOGO_SRC = `${import.meta.env.BASE_URL}zelion-logo.svg`
+
+export const Logo = ({ size = 56, glow = true }) => (
+  <img src={LOGO_SRC} width={size} height={size} alt="Zelion" draggable="false"
+    className={glow ? 'drop-shadow-[0_0_16px_rgba(245,197,66,0.7)] select-none' : 'select-none'} />
+)
 
 export const Card = ({ children, className = '' }) => (
   <div className={`card fade-in ${className}`}>{children}</div>
@@ -23,6 +29,7 @@ export const Chip = ({ children, tone = 'gold' }) => {
     green: 'bg-emerald-500/15 text-emerald-300',
     red: 'bg-rose-500/15 text-rose-300',
     gray: 'bg-white/10 text-white/60',
+    blue: 'bg-sky-500/15 text-sky-300',
   }
   return <span className={`chip ${tones[tone]}`}>{children}</span>
 }
@@ -42,6 +49,17 @@ export const Progress = ({ value, max }) => {
   )
 }
 
+// Profile badge: the gold Z + a quiz rank.
+export const RankBadge = ({ rank, sub }) => (
+  <div className="flex items-center gap-3">
+    <Logo size={44} />
+    <div>
+      <div className="font-extrabold text-gold leading-tight">{rank}</div>
+      {sub && <div className="text-[11px] text-white/45">{sub}</div>}
+    </div>
+  </div>
+)
+
 export const Toast = ({ msg, tone = 'gold' }) =>
   msg ? (
     <div className="fixed left-1/2 -translate-x-1/2 bottom-24 z-50 fade-in">
@@ -50,3 +68,14 @@ export const Toast = ({ msg, tone = 'gold' }) =>
       </div>
     </div>
   ) : null
+
+export const Splash = () => (
+  <div className="min-h-full flex flex-col items-center justify-center gap-5 fade-in">
+    <div className="animate-pulse"><Logo size={96} /></div>
+    <div className="text-center">
+      <div className="text-2xl font-black tracking-wide">ZELION <span className="text-gold">REACTOR</span></div>
+      <div className="text-xs text-white/40 mt-1">Infrastructure-grade energy game</div>
+    </div>
+    <div className="w-7 h-7 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
+  </div>
+)
