@@ -1,12 +1,17 @@
-import React from 'react'
+import React, { useState } from 'react'
 
-// The uploaded ZelionTech gold Z. Drop a /public/zelion-logo.png to override the SVG.
-const LOGO_SRC = `${import.meta.env.BASE_URL}zelion-logo.svg`
+// Uses the uploaded gold logo at /public/zelion-logo.png if present; falls back to the vector.
+const PNG = `${import.meta.env.BASE_URL}zelion-logo.png`
+const SVG = `${import.meta.env.BASE_URL}zelion-logo.svg`
 
-export const Logo = ({ size = 56, glow = true }) => (
-  <img src={LOGO_SRC} width={size} height={size} alt="Zelion" draggable="false"
-    className={glow ? 'drop-shadow-[0_0_16px_rgba(245,197,66,0.7)] select-none' : 'select-none'} />
-)
+export const Logo = ({ size = 56, glow = true }) => {
+  const [src, setSrc] = useState(PNG)
+  return (
+    <img src={src} width={size} height={size} alt="Zelion" draggable="false"
+      onError={() => { if (src !== SVG) setSrc(SVG) }}
+      className={glow ? 'drop-shadow-[0_0_16px_rgba(245,197,66,0.7)] select-none' : 'select-none'} />
+  )
+}
 
 export const Card = ({ children, className = '' }) => (
   <div className={`card fade-in ${className}`}>{children}</div>

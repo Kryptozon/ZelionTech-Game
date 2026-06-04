@@ -7,6 +7,7 @@ from .auth import validate_init_data
 from ..services import economy, users, missions as msvc, proof as psvc
 from ..services import leaderboard, redis_lb, quiz, kb, kb_doc, ai_quiz, analytics
 from ..services import tap as tapsvc, upgrades as upgsvc, tap_missions as tapmis
+from ..services import community as csvc
 
 
 # ---------------- auth helpers ----------------
@@ -127,7 +128,8 @@ async def complete_mission(request):
 
 @authed
 async def proof_submit(request):
-    """Body: {mission_id, handle}. Image upload is handled in the bot DM flow."""
+    """Body: {mission_id, handle, image_base64?, mime?}. Screenshot saved in DB."""
+    import base64
     pool, redis, bot, uid = _ctx(request)
     body = await request.json()
     mid = int(body["mission_id"])
@@ -135,10 +137,26 @@ async def proof_submit(request):
     m = await msvc.get_mission(pool, mid)
     if not m:
         return web.json_response({"error": "not_found"}, status=404)
-    pid = await psvc.create_submission(pool, uid, mid, m["platform"], handle, None)
+
+    image = None
+    b64 = body.get("image_base64")
+    if b64:
+        if "," in b64:                      # strip data: URL prefix if present
+            b64 = b64.split(",", 1)[1]
+        try:
+            image = base64.b64decode(b64)
+        except Exception:
+            return web.json_response({"error": "bad_image"}, status=400)
+
+    pid = await psvc.create_submission(
+        pool, uid, mid, m["platform"], handle, screenshot=image,
+        mime=body.get("mime", "image/jpeg"),
+        username=request["user"].get("username") or request["user"].get("first_name"),
+    )
     if pid is None:
         return web.json_response({"error": "duplicate"}, status=409)
-    await psvc.deliver(bot, pool, pid)
+    if pid == "too_large":
+        return web.json_response({"error": "too_large"}, status=413)
     return web.json_response({"status": "pending", "id": pid, "reward": m["xp_reward"]})
 
 
@@ -280,18 +298,43 @@ async def quiz_rank(request):
     return web.json_response(await quiz.quiz_rank(pool, request["user"]["id"]))
 
 
+@authed
+async def quiz_status(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    return web.json_response(await quiz.status(pool, redis, request["user"]["id"]))
+
+
 # ============================================================
 # ADMIN ENDPOINTS
 # ============================================================
 @authed
 @admin_only
 async def admin_proofs(request):
-    rows = await psvc.list_pending(request.app["pool"], 50)
+    status = request.query.get("status", "pending")
+    rows = await psvc.list_by_status(request.app["pool"], status, 100)
+    init = request.headers.get("X-Init-Data") or request.query.get("initData", "")
+    import urllib.parse
+    q = urllib.parse.quote(init)
     return web.json_response({"proofs": [
         {"id": r["id"], "user_id": r["user_id"], "username": r["username"],
-         "title": r["title"], "handle": r["claimed_handle"], "reward": r["xp_reward"],
-         "created_at": str(r["created_at"])} for r in rows
+         "first_name": r["first_name"], "platform": r["platform"], "mission": r["title"],
+         "handle": r["claimed_handle"], "link": r["submitted_link"], "reward": r["reward"],
+         "status": r["status"], "reject_reason": r["reject_reason"],
+         "created_at": str(r["created_at"]),
+         "reviewed_at": str(r["reviewed_at"]) if r["reviewed_at"] else None,
+         "has_image": r["has_image"],
+         "image_url": (f"/api/admin/proofs/{r['id']}/image?initData={q}" if r["has_image"] else None)}
+        for r in rows
     ]})
+
+
+@authed
+@admin_only
+async def admin_proof_image(request):
+    img, mime = await psvc.get_image(request.app["pool"], int(request.match_info["id"]))
+    if not img:
+        return web.json_response({"error": "no_image"}, status=404)
+    return web.Response(body=img, content_type=mime, headers={"Cache-Control": "private, max-age=600"})
 
 
 @authed
@@ -302,10 +345,12 @@ async def admin_proof_approve(request):
     res = await psvc.approve(pool, pid, request["user"]["id"], redis=redis)
     if isinstance(res, dict):
         try:
-            await bot.send_message(res["user_id"], f"✅ Proof approved! +{res['xp']}💎 for {res['title']}.")
+            await bot.send_message(res["user_id"],
+                                   f"✅ <b>Proof approved!</b> +{res['xp']} ZLN-XP for {res['title']}.")
         except Exception:
             pass
-    return web.json_response({"result": "ok" if isinstance(res, dict) else str(res)})
+        return web.json_response({"result": "approved", "awarded": res["xp"]})
+    return web.json_response({"result": str(res) if res else "already_reviewed"})
 
 
 @authed
@@ -313,14 +358,45 @@ async def admin_proof_approve(request):
 async def admin_proof_reject(request):
     pool, redis, bot, _ = _ctx(request)
     pid = int(request.match_info["id"])
-    reason = (await request.json()).get("reason", "Not valid")
+    body = await request.json() if request.can_read_body else {}
+    reason = (body.get("reason") or "Not valid").strip()[:280]
     res = await psvc.reject(pool, pid, request["user"]["id"], reason)
     if res:
         try:
-            await bot.send_message(res["user_id"], f"❌ Proof rejected: {reason}")
+            await bot.send_message(res["user_id"],
+                                   f"❌ <b>Proof rejected.</b>\nReason: <i>{reason}</i>\nYou can resubmit.")
         except Exception:
             pass
-    return web.json_response({"result": "ok" if res else "already_reviewed"})
+    return web.json_response({"result": "rejected" if res else "already_reviewed"})
+
+
+@authed
+@admin_only
+async def admin_proof_ban(request):
+    pool, redis, bot, _ = _ctx(request)
+    pid = int(request.match_info["id"])
+    async with pool.acquire() as con:
+        target = await con.fetchval("SELECT user_id FROM proof_submissions WHERE id=$1", pid)
+    if not target:
+        return web.json_response({"error": "not_found"}, status=404)
+    await psvc.ban_and_reject_all(pool, target, request["user"]["id"])
+    try:
+        await bot.send_message(target, "🚫 Your account has been banned for fraudulent proof submissions.")
+    except Exception:
+        pass
+    return web.json_response({"result": "banned", "user_id": target})
+
+
+@authed
+@admin_only
+async def admin_banned(request):
+    return web.json_response({"banned": await psvc.banned_users(request.app["pool"], 100)})
+
+
+@authed
+@admin_only
+async def admin_proof_stats(request):
+    return web.json_response(await psvc.dashboard_stats(request.app["pool"]))
 
 
 @authed
@@ -372,6 +448,36 @@ async def admin_question_reject(request):
     return web.json_response({"result": "rejected"})
 
 
+# ============================================================
+# COMMUNITY ENDPOINTS
+# ============================================================
+@authed
+async def community_overview(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    uid = request["user"]["id"]
+    from ..services import events as esvc
+    surge = await esvc.surge_active(redis)
+    group_link = (f"https://t.me/c/{str(settings.GROUP_CHAT_ID)[4:]}"
+                  if str(settings.GROUP_CHAT_ID).startswith("-100") else None)
+    return web.json_response({
+        "discussion": await csvc.todays_discussion(pool),
+        "missions": await csvc.list_missions(pool, uid),
+        "score": await csvc.contribution_score(pool, uid),
+        "top_today": await csvc.group_leaderboard(pool, "today", 10),
+        "top_week": await csvc.group_leaderboard(pool, "week", 10),
+        "surge_multiplier": surge,
+        "group_link": group_link,
+    })
+
+
+@authed
+async def community_claim(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    mid = int(request.match_info["id"])
+    res = await csvc.claim_mission(pool, redis, request["user"]["id"], mid)
+    return web.json_response(res, status=(400 if res.get("error") else 200))
+
+
 def setup_api(app: web.Application):
     r = app.router
     r.add_get("/api/me", me)
@@ -396,11 +502,20 @@ def setup_api(app: web.Application):
     r.add_post("/api/quiz/answer", quiz_answer)
     r.add_get("/api/quiz/history", quiz_history)
     r.add_get("/api/quiz/daily", quiz_daily)
+    r.add_get("/api/quiz/status", quiz_status)
     r.add_get("/api/quiz/rank", quiz_rank)
-    # admin
+    # community
+    r.add_get("/api/community", community_overview)
+    r.add_post("/api/community/missions/{id}/claim", community_claim)
+    # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)
+    r.add_get("/api/admin/proofs/{id}/image", admin_proof_image)
     r.add_post("/api/admin/proofs/{id}/approve", admin_proof_approve)
     r.add_post("/api/admin/proofs/{id}/reject", admin_proof_reject)
+    r.add_post("/api/admin/proofs/{id}/ban", admin_proof_ban)
+    r.add_get("/api/admin/banned", admin_banned)
+    r.add_get("/api/admin/proof-stats", admin_proof_stats)
+    # admin — quiz KB
     r.add_post("/api/admin/kb/refresh", admin_kb_refresh)
     r.add_get("/api/admin/questions", admin_questions)
     r.add_post("/api/admin/questions/{id}/approve", admin_question_approve)

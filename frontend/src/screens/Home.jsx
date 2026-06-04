@@ -17,7 +17,7 @@ export default function Home({ me, refresh, flash, go }) {
         flash(`Next charge in ${h}h ${m}m`, 'red'); hapticErr()
       } else {
         const surge = r.award?.multiplier > 1 ? ` ⚡x${r.award.multiplier}` : ''
-        flash(`+${r.energy}⚡ +${r.xp}💎  Day ${r.streak}${surge}`); hapticOk()
+        flash(`+${r.energy}⚡ +${r.xp} ZLN-XP  Day ${r.streak}${surge}`); hapticOk()
         await refresh()
       }
     } catch (e) { flash(e.message, 'red') } finally { setBusy(false) }
@@ -34,7 +34,7 @@ export default function Home({ me, refresh, flash, go }) {
           </div>
           <div className="text-right">
             <div className="label">Points</div>
-            <div className="text-2xl font-black">{me.points}💎</div>
+            <div className="text-2xl font-black">{me.points} ZLN-XP</div>
           </div>
         </div>
         {me.next_threshold && (
@@ -63,7 +63,7 @@ export default function Home({ me, refresh, flash, go }) {
             <div className="flex-1">
               <div className="font-bold">🗓 Daily Challenge {daily.completed && '✅'}</div>
               <div className="text-[11px] text-white/45">
-                {daily.questions.filter((q) => q.answered).length}/{daily.questions.length} done · +{daily.bonus}💎 bonus
+                {daily.questions.filter((q) => q.answered).length}/{daily.questions.length} done · +{daily.bonus} ZLN-XP bonus
               </div>
             </div>
             <span className="text-gold font-bold">Play →</span>

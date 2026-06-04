@@ -51,17 +51,21 @@ class Settings:
 
     # --- Phase 2: Group activity rewards ---
     GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0") or 0)  # 0 = accept any group
-    GROUP_MSG_XP = int(os.getenv("GROUP_MSG_XP", "2"))
-    GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "20"))
-    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "3"))
-    GROUP_REACT_XP = int(os.getenv("GROUP_REACT_XP", "5"))
-    GROUP_REACT_DAILY_CAP = int(os.getenv("GROUP_REACT_DAILY_CAP", "5"))
+    GROUP_MSG_XP = int(os.getenv("GROUP_MSG_XP", "3"))
+    GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "15"))
+    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "20"))
+    GROUP_FLOOD_SEC = int(os.getenv("GROUP_FLOOD_SEC", "90"))   # 1 rewarded msg / 90s
+    GROUP_REPLY_XP = int(os.getenv("GROUP_REPLY_XP", "4"))
+    GROUP_DISCUSSION_XP = int(os.getenv("GROUP_DISCUSSION_XP", "15"))
+    GROUP_REACT_XP = int(os.getenv("GROUP_REACT_XP", "2"))
+    GROUP_REACT_DAILY_CAP = int(os.getenv("GROUP_REACT_DAILY_CAP", "10"))
 
     # --- Phase 2/3: Surge hours (UTC) + weekly bonus ---
     SURGE_HOURS = _ints(os.getenv("SURGE_HOURS", ""))      # e.g. "18,21"
     SURGE_MULT = int(os.getenv("SURGE_MULT", "2"))
     SURGE_DURATION_MIN = int(os.getenv("SURGE_DURATION_MIN", "60"))
     WEEKLY_BONUS = _ints(os.getenv("WEEKLY_BONUS", "500,300,200"))
+    DISCUSSION_HOUR = int(os.getenv("DISCUSSION_HOUR", "9"))   # UTC hour to post daily discussion
 
     # --- Mini App / Web server ---
     MINIAPP_URL = os.getenv("MINIAPP_URL", "https://zeliontech-game.onrender.com/app")

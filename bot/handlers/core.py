@@ -18,7 +18,7 @@ async def menu_text(pool, user_id: int) -> str:
     return (
         f"🔋 <b>Zelion Reactor — Main Menu</b>\n\n"
         f"⚡ Energy: <b>{cur}/{cap}</b>\n"
-        f"💎 Points: <b>{u['points']}</b>\n"
+        f"💰 Points: <b>{u['points']} ZLN-XP</b>\n"
         f"🏅 Rank: <b>{rank}</b> (Lv.{u['level']})\n"
         f"🔥 Streak: <b>{u['streak_count']}</b> days"
     )
@@ -70,7 +70,7 @@ async def cb_claim(cb: CallbackQuery, pool, redis, bot):
     surge_line = f"\n⚡ <b>SURGE x{surge}!</b>" if surge > 1 else ""
     streak_mult = "×2" if res["streak"] >= 7 else ""
     await cb.message.edit_text(
-        f"✅ <b>Reactor charged!</b>\n+{res['energy']}⚡  +{res['xp']}💎\n"
+        f"✅ <b>Reactor charged!</b>\n+{res['energy']}⚡  +{res['xp']} ZLN-XP\n"
         f"🔥 Streak: Day {res['streak']} {streak_mult}{surge_line}",
         reply_markup=back_menu(),
     )
@@ -87,8 +87,8 @@ async def cb_invite(cb: CallbackQuery, pool):
         f"👥 <b>Recruit Operators</b>\n\n"
         f"Your link:\n<code>{link}</code>\n\n"
         f"✅ Activated: <b>{activated}</b>\n⏳ Pending: <b>{pending}</b>\n\n"
-        f"You earn <b>+150💎 +50⚡</b> when a recruit activates "
-        f"(stays 24h and reaches 50💎). Fake invites don't count.",
+        f"You earn <b>+150 ZLN-XP +50⚡</b> when a recruit activates "
+        f"(stays 24h and reaches 50 ZLN-XP). Fake invites don't count.",
         reply_markup=invite_kb(link),
     )
     await cb.answer()
@@ -101,15 +101,15 @@ async def cb_profile(cb: CallbackQuery, pool, redis):
     cur, cap = await economy.energy_status(pool, cb.from_user.id)
     rank = economy.RANKS.get(u["level"], "⚡ Spark")
     nxt = economy.next_threshold(u["points"])
-    rank_line = f"▰ {u['points']}/{nxt[1]}💎 to {economy.RANKS[nxt[0]]}" if nxt else "🔮 Max rank!"
+    rank_line = f"▰ {u['points']}/{nxt[1]} ZLN-XP to {economy.RANKS[nxt[0]]}" if nxt else "🔮 Max rank!"
     place = await redis_lb.rank(redis, redis_lb.ALL, cb.from_user.id)
     week = await redis_lb.score(redis, redis_lb.WEEK, cb.from_user.id)
     activated, _ = await users.referral_stats(pool, cb.from_user.id)
     await cb.message.edit_text(
         f"👤 <b>Operator {u['username'] or u['first_name']}</b>\n\n"
-        f"🏅 {rank} (Lv.{u['level']})\n💎 Points: <b>{u['points']}</b>\n"
+        f"🏅 {rank} (Lv.{u['level']})\n ZLN-XP Points: <b>{u['points']}</b>\n"
         f"⚡ Energy: {cur}/{cap}\n🔥 Streak: {u['streak_count']}\n"
-        f"🏆 All-time rank: #{place or '—'}\n📅 This week: {week}💎\n"
+        f"🏆 All-time rank: #{place or '—'}\n📅 This week: {week} ZLN-XP\n"
         f"👥 Referrals: {activated}\n\n{rank_line}",
         reply_markup=back_menu(),
     )
@@ -122,7 +122,7 @@ async def _render_zset(pool, redis, key, title, viewer_id):
     names = await leaderboard.names_for(pool, [uid for uid, _ in pairs])
     medals = ["🥇", "🥈", "🥉"] + [f"{i}." for i in range(4, 11)]
     body = "\n".join(
-        f"{medals[i]} {names.get(uid, uid)} — {sc}💎" for i, (uid, sc) in enumerate(pairs)
+        f"{medals[i]} {names.get(uid, uid)} — {sc} ZLN-XP" for i, (uid, sc) in enumerate(pairs)
     ) or "No operators yet — be the first! ⚡"
     place = await redis_lb.rank(redis, key, viewer_id)
     return f"🏆 <b>{title}</b>\n\n{body}\n\n— Your rank: <b>#{place or '—'}</b>"

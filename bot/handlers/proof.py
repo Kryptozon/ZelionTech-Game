@@ -1,22 +1,18 @@
-"""Proof submission FSM + admin approve/reject callbacks."""
+"""Proof submission via bot DM. The screenshot is saved in the DB and reviewed in
+the Mini App Admin Dashboard (no Telegram forwarding / review callbacks)."""
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message
 from aiogram.fsm.context import FSMContext
 
-from ..config import settings
-from ..states import ProofFlow, RejectFlow
-from ..keyboards import back_menu, proof_review_kb
-from ..texts import (
-    PROOF_ASK_HANDLE, PROOF_ASK_SCREENSHOT, PROOF_PENDING, PROOF_DUPLICATE,
-    PROOF_APPROVED_USER, PROOF_REJECTED_USER,
-)
+from ..states import ProofFlow
+from ..keyboards import back_menu
+from ..texts import PROOF_ASK_HANDLE, PROOF_ASK_SCREENSHOT, PROOF_PENDING, PROOF_DUPLICATE
 from ..services import proof as psvc
 from ..services import missions as msvc
 
 router = Router()
 
 
-# ---------------- User: submit proof ----------------
 @router.callback_query(F.data.startswith("proof:start:"))
 async def proof_start(cb: CallbackQuery, pool, state: FSMContext):
     mid = int(cb.data.split(":")[2])
@@ -33,8 +29,7 @@ async def proof_start(cb: CallbackQuery, pool, state: FSMContext):
 
 @router.message(ProofFlow.waiting_handle, F.text)
 async def proof_handle(message: Message, state: FSMContext):
-    handle = message.text.strip()[:128]
-    await state.update_data(handle=handle)
+    await state.update_data(handle=message.text.strip()[:128])
     await state.set_state(ProofFlow.waiting_screenshot)
     await message.answer(PROOF_ASK_SCREENSHOT)
 
@@ -42,116 +37,31 @@ async def proof_handle(message: Message, state: FSMContext):
 @router.message(ProofFlow.waiting_screenshot, F.photo)
 async def proof_screenshot(message: Message, state: FSMContext, pool, bot):
     data = await state.get_data()
-    file_id = message.photo[-1].file_id
-    mid = data["mission_id"]
-    pid = await psvc.create_submission(
-        pool, message.from_user.id, mid, data["platform"], data["handle"], file_id
-    )
     await state.clear()
+    # Download the screenshot bytes and store them in the DB (no forwarding).
+    try:
+        buf = await bot.download(message.photo[-1])
+        image = buf.read()
+    except Exception:
+        image = None
+    pid = await psvc.create_submission(
+        pool, message.from_user.id, data["mission_id"], data["platform"], data["handle"],
+        screenshot=image, mime="image/jpeg",
+        username=message.from_user.username or message.from_user.full_name,
+    )
     if pid is None:
         await message.answer(PROOF_DUPLICATE, reply_markup=back_menu())
         return
-    m = await msvc.get_mission(pool, mid)
-    await message.answer(PROOF_PENDING.format(xp=m["xp_reward"]), reply_markup=back_menu())
-    # Reliable delivery to admins (logs failures; retry job covers any misses).
-    await psvc.deliver(bot, pool, pid)
+    if pid == "too_large":
+        await message.answer("⚠️ That image is too large (max 3 MB). Send a smaller screenshot.")
+        return
+    m = await msvc.get_mission(pool, data["mission_id"])
+    await message.answer(
+        PROOF_PENDING.format(xp=m["xp_reward"]) + "\n📥 An admin will review it in the dashboard.",
+        reply_markup=back_menu(),
+    )
 
 
 @router.message(ProofFlow.waiting_screenshot)
 async def proof_need_photo(message: Message):
     await message.answer("📷 Please upload a <b>screenshot image</b> to finish your proof.")
-
-
-# ---------------- Admin: approve ----------------
-@router.callback_query(F.data.startswith("padm:approve:"))
-async def admin_approve(cb: CallbackQuery, pool, redis, bot):
-    if not settings.is_admin(cb.from_user.id):
-        await cb.answer("Not authorized.", show_alert=True)
-        return
-    pid = int(cb.data.split(":")[2])
-    res = await psvc.approve(pool, pid, cb.from_user.id, redis=redis)
-    if res is None:
-        await cb.answer("Already reviewed.", show_alert=True)
-        return
-    if res == "dup":
-        await cb.message.edit_caption(caption=f"❌ Proof #{pid} auto-rejected: duplicate handle.")
-        await cb.answer("Duplicate handle — rejected.")
-        return
-    await cb.message.edit_caption(caption=f"✅ Proof #{pid} approved by you. +{res['xp']}💎 granted.")
-    await cb.answer("Approved ✅")
-    try:
-        await bot.send_message(
-            res["user_id"], PROOF_APPROVED_USER.format(xp=res["xp"], title=res["title"])
-        )
-        # Level-up notice (referral activation already resolved inside approve()).
-        if res.get("leveled"):
-            from ..services import economy
-            from ..texts import LEVEL_UP
-            rank = economy.RANKS.get(res["level"], "⚡ Spark")
-            await bot.send_message(res["user_id"], LEVEL_UP.format(rank=rank, level=res["level"]))
-        if res.get("referrer"):
-            from ..texts import REFERRAL_SUCCESS
-            await bot.send_message(res["referrer"], REFERRAL_SUCCESS)
-    except Exception:
-        pass
-
-
-# ---------------- Admin: ban user ----------------
-@router.callback_query(F.data.startswith("padm:ban:"))
-async def admin_ban(cb: CallbackQuery, pool, bot):
-    if not settings.is_admin(cb.from_user.id):
-        await cb.answer("Not authorized.", show_alert=True)
-        return
-    pid = int(cb.data.split(":")[2])
-    from ..services import admin as asvc
-    async with pool.acquire() as con:
-        p = await con.fetchrow("SELECT user_id FROM proof_submissions WHERE id=$1", pid)
-        if not p:
-            await cb.answer("Not found.", show_alert=True)
-            return
-        # Reject the proof and ban the user (logged in admin_actions).
-        await con.execute(
-            "UPDATE proof_submissions SET status='rejected', reviewed_by=$1, "
-            "reject_reason='banned', reviewed_at=now() WHERE id=$2",
-            cb.from_user.id, pid,
-        )
-    await asvc.ban_user(pool, p["user_id"], cb.from_user.id, "Fraudulent proof")
-    try:
-        await cb.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-    await cb.answer("🚫 User banned & proof rejected.", show_alert=True)
-
-
-# ---------------- Admin: reject (asks reason) ----------------
-@router.callback_query(F.data.startswith("padm:reject:"))
-async def admin_reject_start(cb: CallbackQuery, state: FSMContext):
-    if not settings.is_admin(cb.from_user.id):
-        await cb.answer("Not authorized.", show_alert=True)
-        return
-    pid = int(cb.data.split(":")[2])
-    await state.set_state(RejectFlow.waiting_reason)
-    await state.update_data(pid=pid)
-    await cb.message.reply("✍️ Send the <b>rejection reason</b> (the user will see it).")
-    await cb.answer()
-
-
-@router.message(RejectFlow.waiting_reason, F.text)
-async def admin_reject_reason(message: Message, state: FSMContext, pool, bot):
-    if not settings.is_admin(message.from_user.id):
-        return
-    data = await state.get_data()
-    await state.clear()
-    reason = message.text.strip()[:256]
-    res = await psvc.reject(pool, data["pid"], message.from_user.id, reason)
-    if res is None:
-        await message.answer("Already reviewed.")
-        return
-    m = await msvc.get_mission(pool, res["mission_id"])
-    await message.answer(f"❌ Proof #{data['pid']} rejected.")
-    try:
-        await bot.send_message(
-            res["user_id"], PROOF_REJECTED_USER.format(title=m["title"], reason=reason)
-        )
-    except Exception:
-        pass

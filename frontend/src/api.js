@@ -34,8 +34,8 @@ export const api = {
   missions: () => req('/missions'),
   completeMission: (id, answer_index) =>
     req(`/missions/${id}/complete`, { method: 'POST', body: JSON.stringify({ answer_index }) }),
-  submitProof: (mission_id, handle) =>
-    req('/proof/submit', { method: 'POST', body: JSON.stringify({ mission_id, handle }) }),
+  submitProof: (mission_id, handle, image_base64, mime) =>
+    req('/proof/submit', { method: 'POST', body: JSON.stringify({ mission_id, handle, image_base64, mime }) }),
   leaderboard: () => req('/leaderboard'),
   referrals: () => req('/referrals'),
   profile: () => req('/profile'),
@@ -47,12 +47,20 @@ export const api = {
   quizDaily: () => req('/quiz/daily'),
   quizRank: () => req('/quiz/rank'),
 
-  adminProofs: () => req('/admin/proofs'),
+  // admin proof dashboard
+  adminProofs: (status = 'pending') => req('/admin/proofs?status=' + status),
+  adminProofStats: () => req('/admin/proof-stats'),
+  adminBanned: () => req('/admin/banned'),
   approveProof: (id) => req(`/admin/proofs/${id}/approve`, { method: 'POST' }),
   rejectProof: (id, reason) =>
     req(`/admin/proofs/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  banProof: (id) => req(`/admin/proofs/${id}/ban`, { method: 'POST' }),
   adminQuestions: (status = 'pending') => req('/admin/questions?status=' + status),
   approveQuestion: (id) => req(`/admin/questions/${id}/approve`, { method: 'POST' }),
   rejectQuestion: (id) => req(`/admin/questions/${id}/reject`, { method: 'POST' }),
   kbRefresh: () => req('/admin/kb/refresh', { method: 'POST' }),
+
+  // community
+  community: () => req('/community'),
+  claimGroupMission: (id) => req(`/community/missions/${id}/claim`, { method: 'POST' }),
 }

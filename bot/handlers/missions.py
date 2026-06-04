@@ -17,7 +17,7 @@ router = Router()
 async def cb_missions(cb: CallbackQuery, pool):
     learn = await msvc.list_learn(pool)
     await cb.message.edit_text(
-        "🎯 <b>Clearance Tests</b>\nAnswer ZelionTech quizzes to earn 💎.\n"
+        "🎯 <b>Clearance Tests</b>\nAnswer ZelionTech quizzes to earn  ZLN-XP.\n"
         "(Each costs ⚡ energy and has a cooldown.)",
         reply_markup=learn_list(learn),
     )
@@ -58,7 +58,7 @@ async def cb_social_open(cb: CallbackQuery, pool):
         "none": "▫️ Not started yet.",
     }[state]
     await cb.message.edit_text(
-        f"📡 <b>{m['title']}</b> · Reward <b>+{m['xp_reward']}💎</b>\n\n"
+        f"📡 <b>{m['title']}</b> · Reward <b>+{m['xp_reward']} ZLN-XP</b>\n\n"
         f"{m['description']}\n\n{how}\n\n{status_line}",
         reply_markup=social_detail(m, state),
     )
@@ -91,7 +91,7 @@ async def cb_social_verify(cb: CallbackQuery, pool, redis, bot):
     award = await economy.award_points(pool, cb.from_user.id, m["xp_reward"], "proof",
                                        f"tgjoin:{mid}:{cb.from_user.id}", redis=redis)
     await cb.message.edit_text(
-        f"✅ <b>Verified!</b> +{m['xp_reward']}💎 for {m['title']}. ⚡",
+        f"✅ <b>Verified!</b> +{m['xp_reward']} ZLN-XP for {m['title']}. ⚡",
         reply_markup=back_menu("social:list"),
     )
     await cb.answer("Verified ✅")
@@ -107,7 +107,7 @@ async def cb_quiz_open(cb: CallbackQuery, pool):
         await cb.answer("⏳ This test is on cooldown. Try later.", show_alert=True)
         return
     await cb.message.edit_text(
-        f"🧠 <b>{m['title']}</b> · +{m['xp_reward']}💎 · cost {m['energy_cost']}⚡\n\n{m['quiz_question']}",
+        f"🧠 <b>{m['title']}</b> · +{m['xp_reward']} ZLN-XP · cost {m['energy_cost']}⚡\n\n{m['quiz_question']}",
         reply_markup=quiz_options(m),
     )
     await cb.answer()
@@ -143,7 +143,7 @@ async def cb_quiz_answer(cb: CallbackQuery, pool, redis, bot):
     surge = award.get("multiplier", 1)
     extra = f" (⚡SURGE x{surge})" if surge > 1 else ""
     await cb.message.edit_text(
-        f"✅ <b>Correct!</b> +{m['xp_reward']}💎{extra}\nNice clearance, Operator. ⚡",
+        f"✅ <b>Correct!</b> +{m['xp_reward']} ZLN-XP{extra}\nNice clearance, Operator. ⚡",
         reply_markup=back_menu("missions"),
     )
     await cb.answer("Correct! ✅")

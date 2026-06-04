@@ -71,7 +71,7 @@ export default function Tap({ me, refresh, flash, go }) {
     setCombo((c) => c + 1)
     hapticTap()
 
-    // floating +ZP at touch point
+    // floating +ZLN-XP at touch point
     const rect = wrapRef.current?.getBoundingClientRect()
     const pt = e.touches?.[0] || e
     const x = rect ? (pt.clientX - rect.left) : rect.width / 2
@@ -90,7 +90,7 @@ export default function Tap({ me, refresh, flash, go }) {
       <Card className="flex items-center justify-between">
         <div>
           <div className="label">Verified Energy Generated</div>
-          <div className="text-2xl font-black text-gold">{(st.zp ?? me.points).toLocaleString()} ZP</div>
+          <div className="text-2xl font-black text-gold">{(st.zp ?? me.points).toLocaleString()} ZLN-XP</div>
         </div>
         <div className="text-right">
           <div className="label">Per tap</div>
@@ -147,7 +147,7 @@ function PassiveCard({ st, flash, reload, refresh }) {
     return (
       <Card className="text-center">
         <div className="font-bold">🛰️ Validator Yield</div>
-        <div className="text-xs text-white/50 mt-1">Buy <b>ZEV Validator</b> in the Reactor Lab to earn passive ZP.</div>
+        <div className="text-xs text-white/50 mt-1">Buy <b>ZEV Validator</b> in the Reactor Lab to earn passive ZLN-XP.</div>
       </Card>
     )
   }
@@ -155,7 +155,7 @@ function PassiveCard({ st, flash, reload, refresh }) {
     setBusy(true)
     try {
       const r = await api.claimPassive()
-      if (r.claimed) { flash(`🛰️ +${r.claimed} ZP yield claimed`); refresh(); reload() }
+      if (r.claimed) { flash(`🛰️ +${r.claimed} ZLN-XP yield claimed`); refresh(); reload() }
       else flash('Nothing to claim yet', 'red')
     } catch (e) { flash(e.message, 'red') } finally { setBusy(false) }
   }
@@ -163,7 +163,7 @@ function PassiveCard({ st, flash, reload, refresh }) {
     <Card className="flex items-center justify-between">
       <div>
         <div className="font-bold">🛰️ Validator Yield</div>
-        <div className="text-xs text-white/50">{st.passive_rate} ZP/h · max {st.passive_cap_hours}h offline</div>
+        <div className="text-xs text-white/50">{st.passive_rate} ZLN-XP/h · max {st.passive_cap_hours}h offline</div>
       </div>
       <Btn gold disabled={busy || st.passive_pending <= 0} onClick={claim}>
         Claim {st.passive_pending > 0 ? `+${st.passive_pending}` : ''}

@@ -34,7 +34,7 @@ export default function Leaderboard() {
               <span className="w-7 text-center">{medal(i)}</span>
               <span className="font-semibold">{r.name}</span>
             </div>
-            <span className="text-gold font-bold">{r.score}💎</span>
+            <span className="text-gold font-bold">{r.score} ZLN-XP</span>
           </div>
         ))}
       </Card>
@@ -42,7 +42,7 @@ export default function Leaderboard() {
       <Card className="text-center">
         <div className="label">Your standing</div>
         <div className="font-bold mt-1">
-          All-time #{data.my_rank || '—'} · This week {data.my_week || 0}💎
+          All-time #{data.my_rank || '—'} · This week {data.my_week || 0} ZLN-XP
         </div>
       </Card>
     </div>

@@ -1,29 +1,36 @@
-"""Quiz game logic: difficulty unlock, XP tiers, streak bonuses, ranks,
-daily challenge, history, admin review."""
+"""Daily quiz system: 5 questions / 24h, level-scaled difficulty, no-repeat,
+ZLN-XP rewards, streak bonuses, ranks, countdown. Server-authoritative."""
 import json
 import datetime as dt
 from . import economy
 
-WRONG_COOLDOWN_SEC = 30
+WRONG_COOLDOWN_SEC = 0          # daily model: no per-wrong cooldown, just no reward
+DAILY_SIZE = 5
+SESSION_HOURS = 24
 
-# XP by difficulty tier (req #6): easy=5, medium=10, hard=20, expert=35
+# ZLN-XP by difficulty tier (req): beginner=5, intermediate=10, advanced=20, expert=35
 XP_BY_DIFF = {1: 5, 2: 10, 3: 20, 4: 35, 5: 35}
-
-# Streak bonuses (req #7): 3->+10, 5->+25, 10->special rank (+big bonus)
 STREAK_BONUS = {3: 10, 5: 25, 10: 50}
+STREAK_CAP = 10
 
-# Quiz ranks (req #8) by lifetime correct answers.
 QUIZ_RANKS = [
-    (0, "Reactor Cadet"),
-    (10, "Energy Validator"),
-    (30, "Grid Architect"),
-    (75, "ZEV Operator"),
-    (150, "Infrastructure Elite"),
-    (300, "Zelion Master"),
+    (0, "Reactor Cadet"), (10, "Energy Validator"), (30, "Grid Architect"),
+    (75, "ZEV Operator"), (150, "Infrastructure Elite"), (300, "Zelion Master"),
 ]
 
-DAILY_SIZE = 5
-DAILY_BONUS = 50
+
+def _now():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def _allowed_difficulties(level: int):
+    if level <= 2:
+        return [1]
+    if level <= 4:
+        return [1, 2]
+    if level <= 7:
+        return [2, 3]
+    return [3, 4]
 
 
 def _opts(row):
@@ -31,12 +38,8 @@ def _opts(row):
     return json.loads(o) if isinstance(o, str) else o
 
 
-def _max_difficulty_for_level(level: int) -> int:
-    return max(1, min(level, 4))   # L1->beginner ... L4+->expert
-
-
 # ---------------- Ranks ----------------
-def rank_for(correct_count: int):
+def rank_for(correct_count):
     name, nxt = QUIZ_RANKS[0][1], None
     for i, (req, label) in enumerate(QUIZ_RANKS):
         if correct_count >= req:
@@ -48,80 +51,154 @@ def rank_for(correct_count: int):
 async def quiz_rank(pool, user_id):
     async with pool.acquire() as con:
         correct = await con.fetchval(
-            "SELECT count(*) FROM quiz_attempts WHERE user_id=$1 AND correct", user_id
-        ) or 0
+            "SELECT count(*) FROM quiz_attempts WHERE user_id=$1 AND correct", user_id) or 0
     name, nxt = rank_for(correct)
     return {"correct": correct, "rank": name,
-            "next_rank": (nxt[1] if nxt else None),
-            "next_at": (nxt[0] if nxt else None)}
+            "next_rank": (nxt[1] if nxt else None), "next_at": (nxt[0] if nxt else None)}
 
 
-# ---------------- Serve ----------------
-async def next_question(pool, redis, user_id):
-    cd = await redis.ttl(f"quizcd:{user_id}")
-    if cd and cd > 0:
-        return {"cooldown": cd}
-
-    async with pool.acquire() as con:
-        level = await con.fetchval("SELECT level FROM users WHERE id=$1", user_id) or 1
-        maxd = _max_difficulty_for_level(level)
-        row = await con.fetchrow(
-            """SELECT * FROM quiz_questions
-               WHERE status='approved' AND difficulty <= $2
-                 AND id NOT IN (SELECT question_id FROM quiz_attempts WHERE user_id=$1)
-               ORDER BY difficulty DESC, times_asked ASC, random() LIMIT 1""",
-            user_id, maxd,
+# ---------------- Daily session ----------------
+async def _pick_question_ids(con, user_id, level):
+    diffs = _allowed_difficulties(level)
+    rows = await con.fetch(
+        """SELECT id FROM quiz_questions
+           WHERE status='approved' AND active=true AND difficulty = ANY($2::int[])
+             AND id NOT IN (SELECT question_id FROM quiz_attempts WHERE user_id=$1)
+           ORDER BY difficulty ASC, random() LIMIT $3""",
+        user_id, diffs, DAILY_SIZE,
+    )
+    ids = [r["id"] for r in rows]
+    if len(ids) < DAILY_SIZE:
+        # Fallback: any approved active (easier first), allow repeats if the pool is exhausted.
+        extra = await con.fetch(
+            """SELECT id FROM quiz_questions WHERE status='approved' AND active=true
+               AND id <> ALL($2::bigint[]) ORDER BY difficulty ASC, random() LIMIT $3""",
+            user_id, ids, DAILY_SIZE - len(ids),
         )
-        if not row:
-            row = await con.fetchrow(
-                "SELECT * FROM quiz_questions WHERE status='approved' AND difficulty <= $1 "
-                "ORDER BY times_asked ASC, random() LIMIT 1", maxd,
-            )
-        if not row:
-            return {"empty": True}
-        await con.execute("UPDATE quiz_questions SET times_asked=times_asked+1 WHERE id=$1", row["id"])
-
-    return _question_payload(row, level)
+        ids += [r["id"] for r in extra]
+    return ids[:DAILY_SIZE]
 
 
-def _question_payload(row, level):
+async def _get_or_create_session(con, user_id):
+    sess = await con.fetchrow(
+        "SELECT * FROM daily_quiz_sessions WHERE user_id=$1 AND expires_at > now() "
+        "ORDER BY created_at DESC LIMIT 1",
+        user_id,
+    )
+    if sess:
+        return sess
+    level = await con.fetchval("SELECT level FROM users WHERE id=$1", user_id) or 1
+    ids = await _pick_question_ids(con, user_id, level)
+    if not ids:
+        return None
+    expires = _now() + dt.timedelta(hours=SESSION_HOURS)
+    sess = await con.fetchrow(
+        "INSERT INTO daily_quiz_sessions(user_id, question_ids, expires_at) VALUES($1,$2,$3) RETURNING *",
+        user_id, json.dumps(ids), expires,
+    )
+    return sess
+
+
+def _ids(sess):
+    q = sess["question_ids"]
+    return json.loads(q) if isinstance(q, str) else q
+
+
+async def daily_status(pool, redis, user_id):
+    async with pool.acquire() as con:
+        sess = await _get_or_create_session(con, user_id)
+        if not sess:
+            return {"empty": True, "questions": [], "completed_count": 0, "remaining": 0}
+        ids = _ids(sess)
+        rows = await con.fetch("SELECT * FROM quiz_questions WHERE id = ANY($1::bigint[])", ids)
+        attempts = {r["question_id"]: r for r in await con.fetch(
+            "SELECT question_id, chosen_index, correct FROM quiz_attempts "
+            "WHERE user_id=$1 AND question_id = ANY($2::bigint[])",
+            user_id, ids,
+        )}
+    by_id = {r["id"]: r for r in rows}
+    questions = []
+    for qid in ids:
+        r = by_id.get(qid)
+        if not r:
+            continue
+        a = attempts.get(qid)
+        q = {
+            "id": r["id"], "question": r["question"], "options": _opts(r),
+            "difficulty": r["difficulty"], "tier": r["tier"], "category": r["category"],
+            "reward": r["reward"] or XP_BY_DIFF.get(r["difficulty"], 10),
+            "source_section": r["source_section"], "source_url": r["source_url"],
+            "answered": a is not None,
+        }
+        if a is not None:                    # reveal answer only after answering
+            q["was_correct"] = a["correct"]
+            q["chosen_index"] = a["chosen_index"]
+            q["correct_index"] = r["correct_index"]
+            q["explanation"] = r["explanation"]
+        questions.append(q)
+
+    completed = sum(1 for q in questions if q["answered"])
+    countdown = max(0, int((sess["expires_at"] - _now()).total_seconds()))
     return {
-        "id": row["id"], "question": row["question"], "options": _opts(row),
-        "difficulty": row["difficulty"], "tier": row["tier"], "qtype": row["qtype"],
-        "category": row["category"], "reward": XP_BY_DIFF.get(row["difficulty"], 10),
-        "source_url": row["source_url"], "source_type": row["source_type"],
-        "unlocked_level": level,
+        "date": str(dt.date.today()),
+        "questions": questions,
+        "completed_count": completed,
+        "remaining": DAILY_SIZE - completed,
+        "total": DAILY_SIZE,
+        "completed": completed >= DAILY_SIZE,
+        "reset_time": sess["expires_at"].isoformat(),
+        "countdown_seconds": countdown,
     }
+
+
+async def status(pool, redis, user_id):
+    d = await daily_status(pool, redis, user_id)
+    return {"completed_count": d.get("completed_count", 0),
+            "remaining": d.get("remaining", 0),
+            "reset_time": d.get("reset_time"),
+            "countdown_seconds": d.get("countdown_seconds", 0)}
+
+
+async def next_question(pool, redis, user_id):
+    """Compat: returns the next unanswered daily question, or a 'done' marker."""
+    d = await daily_status(pool, redis, user_id)
+    if d.get("empty"):
+        return {"empty": True}
+    for q in d["questions"]:
+        if not q["answered"]:
+            return {**q, "remaining": d["remaining"], "completed_count": d["completed_count"]}
+    return {"completed": True, "countdown_seconds": d["countdown_seconds"], "reset_time": d["reset_time"]}
 
 
 # ---------------- Answer ----------------
 async def submit_answer(pool, redis, user_id, question_id, chosen_index):
     async with pool.acquire() as con:
-        q = await con.fetchrow("SELECT * FROM quiz_questions WHERE id=$1 AND status='approved'", question_id)
+        sess = await _get_or_create_session(con, user_id)
+        if not sess or question_id not in _ids(sess):
+            return {"error": "not_in_daily_session"}
+        q = await con.fetchrow(
+            "SELECT * FROM quiz_questions WHERE id=$1 AND status='approved' AND active=true", question_id)
         if not q:
             return {"error": "question_not_found"}
         already = await con.fetchval(
-            "SELECT correct FROM quiz_attempts WHERE user_id=$1 AND question_id=$2", user_id, question_id
-        )
+            "SELECT correct FROM quiz_attempts WHERE user_id=$1 AND question_id=$2", user_id, question_id)
         if already is not None:
             return {"error": "already_answered"}
 
     correct = (chosen_index == q["correct_index"])
-    base = XP_BY_DIFF.get(q["difficulty"], 10)
+    base = q["reward"] or XP_BY_DIFF.get(q["difficulty"], 10)
     awarded, streak, bonus, special = 0, 0, 0, False
 
     if correct:
         streak = await redis.incr(f"quizstreak:{user_id}")
         await redis.expire(f"quizstreak:{user_id}", 86400)
         bonus = STREAK_BONUS.get(streak, 0)
-        if streak == 10:
-            special = True
+        special = (streak == 10)
         awarded = base + bonus
-        res = await economy.award_points(pool, user_id, awarded, "quiz_ai",
+        res = await economy.award_points(pool, user_id, awarded, "quiz",
                                          f"q:{question_id}", redis=redis, surge=True)
     else:
         await redis.delete(f"quizstreak:{user_id}")
-        await redis.set(f"quizcd:{user_id}", "1", ex=WRONG_COOLDOWN_SEC)
         res = {"leveled": False, "level": None}
 
     async with pool.acquire() as con:
@@ -130,70 +207,25 @@ async def submit_answer(pool, redis, user_id, question_id, chosen_index):
                VALUES($1,$2,$3,$4,$5) ON CONFLICT (user_id, question_id) DO NOTHING""",
             user_id, question_id, chosen_index, correct, awarded,
         )
-
+        await con.execute(
+            "UPDATE daily_quiz_sessions SET completed_count=completed_count+1 "
+            "WHERE id=$1", sess["id"],
+        )
+        done = await con.fetchval(
+            "SELECT count(*) FROM quiz_attempts WHERE user_id=$1 AND question_id = ANY($2::bigint[])",
+            user_id, _ids(sess),
+        )
     rank = await quiz_rank(pool, user_id)
+    countdown = max(0, int((sess["expires_at"] - _now()).total_seconds()))
     return {
         "correct": correct, "correct_index": q["correct_index"],
         "base": base, "bonus": bonus, "awarded": awarded, "streak": streak, "special": special,
-        "explanation": q["explanation"], "source_url": q["source_url"], "source_type": q["source_type"],
-        "cooldown": 0 if correct else WRONG_COOLDOWN_SEC,
-        "leveled": res.get("leveled", False), "level": res.get("level"),
-        "rank": rank["rank"],
+        "explanation": q["explanation"], "source_section": q["source_section"],
+        "source_url": q["source_url"],
+        "completed_count": done, "remaining": max(0, DAILY_SIZE - done),
+        "completed": done >= DAILY_SIZE, "countdown_seconds": countdown,
+        "leveled": res.get("leveled", False), "level": res.get("level"), "rank": rank["rank"],
     }
-
-
-# ---------------- Daily challenge ----------------
-async def _todays_question_ids(pool):
-    today = dt.date.today()
-    async with pool.acquire() as con:
-        row = await con.fetchval("SELECT question_ids FROM daily_challenges WHERE challenge_date=$1", today)
-        if row:
-            return json.loads(row) if isinstance(row, str) else row
-        # Deterministic pick seeded by the date so everyone gets the same set.
-        seed = int(today.strftime("%Y%m%d"))
-        ids = [r["id"] for r in await con.fetch(
-            "SELECT id FROM quiz_questions WHERE status='approved' "
-            "ORDER BY (id * $1) % 100000, id LIMIT $2", seed, DAILY_SIZE,
-        )]
-        if ids:
-            await con.execute(
-                "INSERT INTO daily_challenges(challenge_date, question_ids) VALUES($1,$2) "
-                "ON CONFLICT (challenge_date) DO NOTHING",
-                today, json.dumps(ids),
-            )
-        return ids
-
-
-async def daily_status(pool, redis, user_id):
-    ids = await _todays_question_ids(pool)
-    if not ids:
-        return {"empty": True, "questions": []}
-    async with pool.acquire() as con:
-        level = await con.fetchval("SELECT level FROM users WHERE id=$1", user_id) or 1
-        rows = await con.fetch("SELECT * FROM quiz_questions WHERE id = ANY($1::bigint[])", ids)
-        answered = {r["question_id"]: r["correct"] for r in await con.fetch(
-            "SELECT question_id, correct FROM quiz_attempts WHERE user_id=$1 AND question_id = ANY($2::bigint[])",
-            user_id, ids,
-        )}
-    qs = []
-    for r in sorted(rows, key=lambda x: ids.index(x["id"])):
-        p = _question_payload(r, level)
-        p["answered"] = r["id"] in answered
-        p["was_correct"] = answered.get(r["id"])
-        qs.append(p)
-
-    done = all(q["answered"] for q in qs)
-    key = f"dailydone:{user_id}:{dt.date.today()}"
-    claimed = bool(await redis.get(key))
-    reward = 0
-    if done and not claimed:
-        if await redis.set(key, "1", nx=True, ex=172800):
-            await economy.award_points(pool, user_id, DAILY_BONUS, "quiz_daily",
-                                       f"daily:{dt.date.today()}", redis=redis)
-            reward = DAILY_BONUS
-            claimed = True
-    return {"date": str(dt.date.today()), "questions": qs, "completed": done,
-            "bonus": DAILY_BONUS, "reward_just_paid": reward, "claimed": claimed}
 
 
 # ---------------- History / admin ----------------
@@ -201,7 +233,7 @@ async def history(pool, user_id, limit=20):
     async with pool.acquire() as con:
         rows = await con.fetch(
             """SELECT a.correct, a.awarded, a.created_at, q.question, q.difficulty, q.tier,
-                      q.qtype, q.category, q.source_url
+                      q.category, q.source_section, q.source_url
                FROM quiz_attempts a JOIN quiz_questions q ON q.id=a.question_id
                WHERE a.user_id=$1 ORDER BY a.created_at DESC LIMIT $2""",
             user_id, limit,
@@ -230,18 +262,20 @@ async def set_status(pool, qid, status, admin_id=None):
 async def analytics(pool):
     async with pool.acquire() as con:
         total = await con.fetchval("SELECT count(*) FROM quiz_questions")
-        approved = await con.fetchval("SELECT count(*) FROM quiz_questions WHERE status='approved'")
+        approved = await con.fetchval(
+            "SELECT count(*) FROM quiz_questions WHERE status='approved' AND active=true")
         pending = await con.fetchval("SELECT count(*) FROM quiz_questions WHERE status='pending'")
-        by_cat = await con.fetch(
-            "SELECT category, count(*) c FROM quiz_questions WHERE status='approved' GROUP BY category ORDER BY c DESC"
-        )
+        by_diff = await con.fetch(
+            "SELECT difficulty, count(*) c FROM quiz_questions WHERE status='approved' AND active "
+            "GROUP BY difficulty ORDER BY difficulty")
         attempts_24h = await con.fetchval(
-            "SELECT count(*) FROM quiz_attempts WHERE created_at > now() - interval '1 day'"
-        )
+            "SELECT count(*) FROM quiz_attempts WHERE created_at > now() - interval '1 day'")
+        daily_sessions = await con.fetchval(
+            "SELECT count(*) FROM daily_quiz_sessions WHERE created_at > now() - interval '1 day'")
         accuracy = await con.fetchval(
             "SELECT round(100.0*avg(case when correct then 1 else 0 end),1) FROM quiz_attempts "
-            "WHERE created_at > now() - interval '7 days'"
-        )
+            "WHERE created_at > now() - interval '7 days'")
     return {"total": total, "approved": approved, "pending": pending,
-            "by_category": [dict(r) for r in by_cat],
-            "attempts_24h": attempts_24h, "accuracy_7d": accuracy}
+            "by_difficulty": [dict(r) for r in by_diff],
+            "attempts_24h": attempts_24h, "daily_sessions_24h": daily_sessions,
+            "accuracy_7d": accuracy}

@@ -19,7 +19,7 @@ export default function Lab({ refresh, flash }) {
     try {
       const r = await api.buyUpgrade(code)
       if (r.error) { flash(r.error.replace('_', ' '), 'red'); return }
-      flash(`✅ Upgraded! -${r.spent} ZP`); hapticOk(); refresh(); load()
+      flash(`✅ Upgraded! -${r.spent} ZLN-XP`); hapticOk(); refresh(); load()
     } catch (e) { flash(e.message, 'red') }
   }
 
@@ -27,7 +27,7 @@ export default function Lab({ refresh, flash }) {
     try {
       const r = await api.claimTapMission(id)
       if (r.error) { flash(r.error.replace('_', ' '), 'red'); return }
-      flash(`🎁 +${r.reward} ZP`); refresh(); load()
+      flash(`🎁 +${r.reward} ZLN-XP`); refresh(); load()
     } catch (e) { flash(e.message, 'red') }
   }
 
@@ -37,7 +37,7 @@ export default function Lab({ refresh, flash }) {
     <div className="space-y-4">
       <Card className="text-center">
         <div className="label">Reactor Lab — your balance</div>
-        <div className="text-2xl font-black text-gold">{data.zp.toLocaleString()} ZP</div>
+        <div className="text-2xl font-black text-gold">{data.zp.toLocaleString()} ZLN-XP</div>
       </Card>
 
       <div className="label">⚙️ Upgrades</div>
@@ -52,7 +52,7 @@ export default function Lab({ refresh, flash }) {
             {u.maxed
               ? <Chip tone="green">MAX</Chip>
               : <Btn gold={u.affordable} disabled={!u.affordable} onClick={() => buy(u.code)}>
-                  {u.next_cost.toLocaleString()} ZP
+                  {u.next_cost.toLocaleString()} ZLN-XP
                 </Btn>}
           </div>
           {!u.maxed && <div className="mt-2"><Progress value={u.level} max={u.max_level} /></div>}
@@ -67,7 +67,7 @@ export default function Lab({ refresh, flash }) {
             <div className="flex-1">
               <div className="font-semibold text-sm">{m.title}</div>
               <Progress value={m.progress} max={m.goal} />
-              <div className="text-[11px] text-white/40 mt-1">{m.progress}/{m.goal} · +{m.reward} ZP</div>
+              <div className="text-[11px] text-white/40 mt-1">{m.progress}/{m.goal} · +{m.reward} ZLN-XP</div>
             </div>
             {m.claimed
               ? <Chip tone="green">✓</Chip>

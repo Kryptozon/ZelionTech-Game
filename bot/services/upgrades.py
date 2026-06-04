@@ -45,7 +45,7 @@ async def buy(pool, redis, user_id, code):
         if points < cost:
             return {"error": "insufficient_zp", "cost": cost, "zp": points}
 
-    # Spend ZP via the idempotent ledger (negative entry), then bump level.
+    # Spend ZLN-XP via the idempotent ledger (negative entry), then bump level.
     spent = await economy.award_points(pool, user_id, -cost, "upgrade",
                                        f"upg:{user_id}:{code}:{lvl}", redis=redis)
     if not spent["ok"]:

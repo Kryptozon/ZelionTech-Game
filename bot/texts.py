@@ -36,7 +36,7 @@ PROOF_PENDING = (
     "📨 <b>Proof received!</b>\n\n"
     "Status: <b>⏳ PENDING REVIEW</b>\n"
     "An admin will review it <b>within 24 hours</b>. You'll get "
-    "<b>+{xp} 💎</b> automatically once approved.\n\n"
+    "<b>+{xp}  ZLN-XP</b> automatically once approved.\n\n"
     "Meanwhile, keep charging and running other missions. ⚡"
 )
 
@@ -47,7 +47,7 @@ PROOF_DUPLICATE = (
 
 PROOF_APPROVED_USER = (
     "✅ <b>Proof approved!</b>\n"
-    "+{xp} 💎 added for <b>{title}</b>. Nice work, Operator. ⚡"
+    "+{xp}  ZLN-XP added for <b>{title}</b>. Nice work, Operator. ⚡"
 )
 
 PROOF_REJECTED_USER = (
@@ -58,7 +58,7 @@ PROOF_REJECTED_USER = (
 
 REFERRAL_SUCCESS = (
     "👥 <b>New recruit activated!</b>\n"
-    "+150 💎 and +50 ⚡ added. Keep recruiting, Operator. 🚀"
+    "+150  ZLN-XP and +50 ⚡ added. Keep recruiting, Operator. 🚀"
 )
 
 LEVEL_UP = (

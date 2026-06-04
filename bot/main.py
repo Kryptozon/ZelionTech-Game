@@ -108,6 +108,15 @@ async def _bootstrap():
     await init_db(pool)
     log.info("✓ Schema + migrations applied")
     await redis_lb.ensure_seed(pool, redis)
+
+    # Guarantee a playable quiz bank on boot (curated questions, no AI/KB needed).
+    from .services import quiz_seed
+    try:
+        seeded = await quiz_seed.ensure_min(pool, minimum=25)
+        active = await quiz_seed.count_active(pool)
+        log.info("✓ Quiz bank ready — %s active question(s) (seeded %s)", active, seeded)
+    except Exception as e:
+        log.warning("quiz ensure_min failed: %s", e)
     await _validate_reachability(bot)
 
     dp = build_dispatcher(pool, redis)

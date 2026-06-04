@@ -7,12 +7,13 @@ import Missions from './screens/Missions'
 import Quiz from './screens/Quiz'
 import Leaderboard from './screens/Leaderboard'
 import Profile from './screens/Profile'
+import Community from './screens/Community'
 import Admin from './screens/Admin'
 
 const TABS = [
   { id: 'reactor', label: 'Reactor', icon: '⚛️' },
-  { id: 'lab', label: 'Lab', icon: '🛠' },
   { id: 'quiz', label: 'Quiz', icon: '🧠' },
+  { id: 'community', label: 'Community', icon: '💬' },
   { id: 'ranks', label: 'Ranks', icon: '🏆' },
   { id: 'profile', label: 'Profile', icon: '👤' },
 ]
@@ -63,9 +64,10 @@ export default function App() {
         {tab === 'lab' && <Lab refresh={refresh} flash={flash} />}
         {tab === 'missions' && <Missions refresh={refresh} flash={flash} />}
         {tab === 'quiz' && <Quiz me={me} refresh={refresh} flash={flash} />}
+        {tab === 'community' && <Community refresh={refresh} flash={flash} />}
         {tab === 'ranks' && <Leaderboard />}
         {tab === 'profile' && <Profile />}
-        {tab === 'admin' && me.is_admin && <Admin flash={flash} />}
+        {tab === 'admin' && me.is_admin && <Admin me={me} flash={flash} />}
       </main>
 
       <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-ink/95 backdrop-blur border-t border-gold/15">

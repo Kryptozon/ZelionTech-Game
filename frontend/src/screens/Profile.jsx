@@ -42,7 +42,7 @@ export default function Profile() {
         <div className="text-xl font-extrabold text-gold">{p.rank}</div>
         <div className="text-sm text-white/50">Level {p.level} · @{p.username || p.first_name}</div>
         <div className="flex mt-4">
-          <Stat label="Points" value={`${p.points}💎`} accent />
+          <Stat label="Points" value={`${p.points} ZLN-XP`} accent />
           <Stat label="Energy" value={`${p.energy}/${p.energy_cap}`} />
           <Stat label="Streak" value={`${p.streak}🔥`} />
         </div>
@@ -69,7 +69,7 @@ export default function Profile() {
               <Btn gold className="flex-1" onClick={share}>📤 Share</Btn>
             </div>
             <div className="text-[11px] text-white/40 mt-2">
-              Earn +150💎 +50⚡ when a recruit stays 24h and reaches 50💎. Fake invites don’t count.
+              Earn +150 ZLN-XP +50⚡ when a recruit stays 24h and reaches 50 ZLN-XP. Fake invites don’t count.
             </div>
           </>
         )}

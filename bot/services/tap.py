@@ -1,6 +1,6 @@
 """Tap-to-earn reactor economy. Server-authoritative: the frontend never sets rewards.
 
-ZP is the existing users.points ledger (so leaderboard/anti-cheat are unified).
+ZLN-XP is the existing users.points ledger (so leaderboard/anti-cheat are unified).
 Reactor Energy is a separate per-user resource in tap_state.
 """
 import datetime as dt
@@ -10,7 +10,7 @@ BASE = {
     "points_per_tap": 1,
     "max_energy": 1000,
     "recharge_rate": 1,     # energy per second
-    "passive_rate": 0,      # ZP per hour
+    "passive_rate": 0,      # ZLN-XP per hour
     "combo_mult": 1.0,
 }
 
