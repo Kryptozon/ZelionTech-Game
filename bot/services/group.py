@@ -17,13 +17,13 @@ async def _scored_today(pool, user_id, kind) -> int:
 
 def _meaningful(text: str) -> bool:
     t = (text or "").strip()
-    if len(t) < settings.GROUP_MSG_MIN_LEN or t.startswith("/"):
+    if len(t) < settings.GROUP_MSG_MIN_LEN or t.startswith("/"):   # min 10 chars
         return False
     letters = sum(ch.isalnum() for ch in t)
-    if letters < 12:                       # filters emoji-only / "hi" / symbol spam
+    if letters < 6:                        # filters emoji-only / symbol spam
         return False
     words = [w for w in re.findall(r"[a-zA-Z0-9']+", t.lower()) if len(w) > 1]
-    if len(set(words)) < 3:                # filters repeated single word / "ok ok ok"
+    if len(set(words)) < 2:                # filters repeated single word / "ok ok ok"
         return False
     return True
 

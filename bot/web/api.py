@@ -127,6 +127,36 @@ async def complete_mission(request):
 
 
 @authed
+async def mission_verify(request):
+    """Auto-verify a Telegram join via getChatMember; award instantly if joined,
+    else tell the client to fall back to proof submission."""
+    from ..services.social_verify import verify_telegram_join
+    pool, redis, bot, uid = _ctx(request)
+    mid = int(request.match_info["id"])
+    m = await msvc.get_mission(pool, mid)
+    if not m:
+        return web.json_response({"error": "not_found"}, status=404)
+    if m["verification"] != "auto":
+        return web.json_response({"verified": False, "needs_proof": True})
+    if await msvc.social_mission_state(pool, uid, mid) == "approved":
+        return web.json_response({"verified": True, "already": True})
+    ok = await verify_telegram_join(bot, m["platform"], uid)
+    if not ok:
+        return web.json_response({"verified": False, "needs_proof": True,
+                                 "message": "Join first, then tap Verify."})
+    async with pool.acquire() as con:
+        await con.execute(
+            "INSERT INTO proof_submissions(user_id, mission_id, platform, claimed_handle, status, reviewed_at) "
+            "VALUES($1,$2,$3,'auto','approved', now())", uid, mid, m["platform"])
+        await con.execute(
+            "INSERT INTO social_accounts(user_id, platform, handle, verified) VALUES($1,$2,$3,true) "
+            "ON CONFLICT (platform, handle) DO NOTHING", uid, m["platform"], f"tg:{uid}")
+    await economy.award_points(pool, uid, m["xp_reward"], "proof",
+                               f"tgjoin:{mid}:{uid}", redis=redis)
+    return web.json_response({"verified": True, "reward": m["xp_reward"]})
+
+
+@authed
 async def proof_submit(request):
     """Body: {mission_id, handle, image_base64?, mime?}. Screenshot saved in DB."""
     import base64
@@ -460,8 +490,11 @@ async def _safe(coro, default, label):
 
 
 def _group_link():
-    g = str(settings.GROUP_CHAT_ID)
-    return f"https://t.me/c/{g[4:]}" if g.startswith("-100") else None
+    return settings.GROUP_LINK      # public link, always openable (https://t.me/zelionglobal)
+
+
+def _channel_link():
+    return settings.CHANNEL_LINK    # https://t.me/zeliontechofficial
 
 
 @authed
@@ -481,6 +514,9 @@ async def community_overview(request):
         "top_month": await _safe(csvc.group_leaderboard(pool, "month", 10), [], "lb_month"),
         "surge_multiplier": surge,
         "group_link": _group_link(),
+        "channel_link": _channel_link(),
+        "msg_reward": settings.GROUP_MSG_XP,
+        "msg_min_len": settings.GROUP_MSG_MIN_LEN,
     })
 
 
@@ -500,7 +536,8 @@ async def group_activity_ep(request):
     score = await _safe(csvc.contribution_score(pool, uid),
                         {"today": 0, "messages": 0, "replies": 0, "reactions": 0,
                          "discussion": 0, "days_week": 0}, "activity")
-    return web.json_response({"score": score, "group_link": _group_link()})
+    return web.json_response({"score": score, "group_link": _group_link(),
+                              "channel_link": _channel_link()})
 
 
 @authed
@@ -521,7 +558,7 @@ async def group_leaderboard_ep(request):
 async def group_discussion_ep(request):
     pool = request.app["pool"]
     return web.json_response({"discussion": await _safe(csvc.todays_discussion(pool), None, "discussion"),
-                              "group_link": _group_link()})
+                              "group_link": _group_link(), "channel_link": _channel_link()})
 
 
 @authed
@@ -555,6 +592,7 @@ def setup_api(app: web.Application):
     r.add_post("/api/claim-energy", claim_energy)
     r.add_get("/api/missions", get_missions)
     r.add_post("/api/missions/{id}/complete", complete_mission)
+    r.add_post("/api/missions/{id}/verify", mission_verify)
     r.add_post("/api/proof/submit", proof_submit)
     r.add_get("/api/leaderboard", get_leaderboard)
     r.add_get("/api/referrals", get_referrals)

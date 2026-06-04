@@ -48,13 +48,16 @@ class Settings:
         "telegram_official": os.getenv("TG_OFFICIAL_CHAT", "@zeliontechofficial"),
         "telegram_global": os.getenv("TG_GLOBAL_CHAT", "@zelionglobal"),
     }
+    # Public links used by the Mini App buttons (always openable).
+    GROUP_LINK = os.getenv("GROUP_LINK", "https://t.me/zelionglobal")
+    CHANNEL_LINK = os.getenv("CHANNEL_LINK", "https://t.me/zeliontechofficial")
 
     # --- Phase 2: Group activity rewards ---
     GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0") or 0)  # 0 = accept any group
-    GROUP_MSG_XP = int(os.getenv("GROUP_MSG_XP", "3"))
-    GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "15"))
-    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "20"))
-    GROUP_FLOOD_SEC = int(os.getenv("GROUP_FLOOD_SEC", "90"))   # 1 rewarded msg / 90s
+    GROUP_MSG_XP = int(os.getenv("GROUP_MSG_XP", "1"))          # +1 ZLN-XP per valid message
+    GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "20"))
+    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "10"))
+    GROUP_FLOOD_SEC = int(os.getenv("GROUP_FLOOD_SEC", "60"))   # 1 rewarded msg / 60s
     GROUP_REPLY_XP = int(os.getenv("GROUP_REPLY_XP", "4"))
     GROUP_DISCUSSION_XP = int(os.getenv("GROUP_DISCUSSION_XP", "15"))
     GROUP_REACT_XP = int(os.getenv("GROUP_REACT_XP", "2"))

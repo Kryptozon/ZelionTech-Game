@@ -1,8 +1,20 @@
 """Daily quiz system: 5 questions / 24h, level-scaled difficulty, no-repeat,
 ZLN-XP rewards, streak bonuses, ranks, countdown. Server-authoritative."""
 import json
+import random
 import datetime as dt
 from . import economy
+
+
+def answer_order(question_id, user_id, n):
+    """Deterministic per-(question,user) permutation so the correct answer is
+    randomly placed across A/B/C/D (not always option A). Reproducible on serve,
+    reveal, and answer validation — no DB write needed. shuffled[i] = original[order[i]]."""
+    seed = (int(question_id) * 1000003) ^ ((int(user_id) * 2654435761) & 0xFFFFFFFF)
+    rnd = random.Random(seed)
+    order = list(range(n))
+    rnd.shuffle(order)
+    return order
 
 WRONG_COOLDOWN_SEC = 0          # daily model: no per-wrong cooldown, just no reward
 DAILY_SIZE = 5
@@ -123,8 +135,11 @@ async def daily_status(pool, redis, user_id):
         if not r:
             continue
         a = attempts.get(qid)
+        opts = _opts(r)
+        order = answer_order(qid, user_id, len(opts))
+        shuffled = [opts[order[i]] for i in range(len(opts))]
         q = {
-            "id": r["id"], "question": r["question"], "options": _opts(r),
+            "id": r["id"], "question": r["question"], "options": shuffled,
             "difficulty": r["difficulty"], "tier": r["tier"], "category": r["category"],
             "reward": r["reward"] or XP_BY_DIFF.get(r["difficulty"], 10),
             "source_section": r["source_section"], "source_url": r["source_url"],
@@ -132,8 +147,8 @@ async def daily_status(pool, redis, user_id):
         }
         if a is not None:                    # reveal answer only after answering
             q["was_correct"] = a["correct"]
-            q["chosen_index"] = a["chosen_index"]
-            q["correct_index"] = r["correct_index"]
+            q["chosen_index"] = a["chosen_index"]                 # stored in shuffled space
+            q["correct_index"] = order.index(r["correct_index"])  # position in shuffled options
             q["explanation"] = r["explanation"]
         questions.append(q)
 
@@ -185,7 +200,12 @@ async def submit_answer(pool, redis, user_id, question_id, chosen_index):
         if already is not None:
             return {"error": "already_answered"}
 
-    correct = (chosen_index == q["correct_index"])
+    # Map the user's shuffled choice back to the original option, then validate.
+    opts = _opts(q)
+    order = answer_order(question_id, user_id, len(opts))
+    original_choice = order[chosen_index] if 0 <= chosen_index < len(order) else -1
+    correct = (original_choice == q["correct_index"])
+    shuffled_correct_index = order.index(q["correct_index"])
     base = q["reward"] or XP_BY_DIFF.get(q["difficulty"], 10)
     awarded, streak, bonus, special = 0, 0, 0, False
 
@@ -218,7 +238,7 @@ async def submit_answer(pool, redis, user_id, question_id, chosen_index):
     rank = await quiz_rank(pool, user_id)
     countdown = max(0, int((sess["expires_at"] - _now()).total_seconds()))
     return {
-        "correct": correct, "correct_index": q["correct_index"],
+        "correct": correct, "correct_index": shuffled_correct_index,
         "base": base, "bonus": bonus, "awarded": awarded, "streak": streak, "special": special,
         "explanation": q["explanation"], "source_section": q["source_section"],
         "source_url": q["source_url"],

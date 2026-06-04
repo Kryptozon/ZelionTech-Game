@@ -34,6 +34,7 @@ export const api = {
   missions: () => req('/missions'),
   completeMission: (id, answer_index) =>
     req(`/missions/${id}/complete`, { method: 'POST', body: JSON.stringify({ answer_index }) }),
+  verifyMission: (id) => req(`/missions/${id}/verify`, { method: 'POST' }),
   submitProof: (mission_id, handle, image_base64, mime) =>
     req('/proof/submit', { method: 'POST', body: JSON.stringify({ mission_id, handle, image_base64, mime }) }),
   leaderboard: () => req('/leaderboard'),

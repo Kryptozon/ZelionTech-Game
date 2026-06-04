@@ -46,8 +46,8 @@ export default function App() {
   const tabs = me.is_admin ? [...TABS, { id: 'admin', label: 'Admin', icon: '🛡' }] : TABS
 
   return (
-    <div className="max-w-md mx-auto min-h-full pb-24">
-      <header className="flex items-center gap-3 px-4 pt-4 pb-2">
+    <div className="app-shell max-w-md mx-auto">
+      <header className="app-header flex items-center gap-3 px-4 pt-4 pb-2">
         <Logo size={34} />
         <div className="flex-1">
           <div className="font-extrabold leading-tight">ZELION <span className="text-gold">REACTOR</span></div>
@@ -59,7 +59,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="px-4">
+      <main className="app-main px-4">
         {tab === 'reactor' && <Tap me={me} refresh={refresh} flash={flash} go={setTab} />}
         {tab === 'lab' && <Lab refresh={refresh} flash={flash} />}
         {tab === 'missions' && <Missions refresh={refresh} flash={flash} />}
@@ -70,7 +70,7 @@ export default function App() {
         {tab === 'admin' && me.is_admin && <Admin me={me} flash={flash} />}
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-ink/95 backdrop-blur border-t border-gold/15">
+      <nav className="app-nav">
         <div className="flex">
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}

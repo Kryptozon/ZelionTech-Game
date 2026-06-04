@@ -6,11 +6,13 @@ import { hapticOk } from '../telegram'
 export default function Lab({ refresh, flash }) {
   const [data, setData] = useState(null)
   const [missions, setMissions] = useState([])
+  const [stats, setStats] = useState(null)   // live tap stats (per-tap, max energy, recharge)
 
   const load = async () => {
     try {
       setData(await api.upgrades())
       setMissions((await api.tapMissions()).missions)
+      setStats(await api.tapState())          // refresh tap stats so effects show instantly
     } catch (e) { flash(e.message, 'red') }
   }
   useEffect(() => { load() }, [])
@@ -38,6 +40,13 @@ export default function Lab({ refresh, flash }) {
       <Card className="text-center">
         <div className="label">Reactor Lab — your balance</div>
         <div className="text-2xl font-black text-gold">{data.zp.toLocaleString()} ZLN-XP</div>
+        {stats && (
+          <div className="flex justify-center gap-4 mt-2 text-[11px] text-white/55">
+            <span>⚡ <b className="text-gold">+{stats.points_per_tap}</b>/tap</span>
+            <span>🔋 max <b>{stats.max_energy}</b></span>
+            <span>☀️ <b>+{stats.recharge_rate}</b>/s</span>
+          </div>
+        )}
       </Card>
 
       <div className="label">⚙️ Upgrades</div>

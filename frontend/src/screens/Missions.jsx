@@ -49,6 +49,15 @@ export default function Missions({ refresh, flash }) {
     } catch (e) { flash(e.message, 'red') }
   }
 
+  // Telegram join: try getChatMember auto-verify; fall back to proof upload.
+  const verify = async (m) => {
+    try {
+      const r = await api.verifyMission(m.id)
+      if (r.verified) { flash(`✅ Verified! +${r.reward || m.reward} ZLN-XP`); hapticOk(); refresh(); load() }
+      else { flash('Not joined yet — upload a screenshot instead', 'red'); setProofFor(m.id) }
+    } catch (e) { flash(e.message, 'red') }
+  }
+
   if (!data) return <Spinner />
   const stateTone = { approved: 'green', pending: 'gold', rejected: 'red', none: 'gray' }
 
@@ -66,7 +75,7 @@ export default function Missions({ refresh, flash }) {
             <div className="flex gap-2 mt-3">
               <a href={m.url} target="_blank" rel="noreferrer" className="btn-ghost flex-1">🔗 Open</a>
               {m.verification === 'auto'
-                ? <a href={m.url} target="_blank" rel="noreferrer" className="btn-gold flex-1">Join in app then bot</a>
+                ? <Btn gold className="flex-1" onClick={() => verify(m)}>✅ Verify join</Btn>
                 : <Btn gold className="flex-1" onClick={() => setProofFor(proofFor === m.id ? null : m.id)}>Submit proof</Btn>}
             </div>
           )}

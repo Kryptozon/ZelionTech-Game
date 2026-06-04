@@ -2,17 +2,39 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; }
+:root { color-scheme: dark; --app-height: 100dvh; }
 
-html, body, #root { height: 100%; }
+html, body, #root { height: 100%; margin: 0; }
+/* Lock the document so Telegram's oscillating viewport can't shift the layout. */
+html, body { overflow: hidden; overscroll-behavior: none; }
 body {
-  margin: 0;
   background:
     radial-gradient(1200px 600px at 50% -10%, rgba(245,197,66,0.12), transparent 60%),
     #0a0a0f;
   color: #e9e9f0;
   -webkit-tap-highlight-color: transparent;
-  padding-top: var(--tg-safe-area-inset-top, 0);
+}
+/* Root is pinned to a STABLE height (set from Telegram viewportStableHeight). */
+#root { height: var(--app-height, 100dvh); }
+
+/* App shell: header (fixed top) · scrollable main · nav (pinned bottom, in normal flow). */
+.app-shell { display: flex; flex-direction: column; height: 100%; }
+.app-header { flex: 0 0 auto; padding-top: var(--tg-safe-area-inset-top, 0); }
+.app-main {
+  flex: 1 1 auto;
+  min-height: 0;                 /* allow the flex child to actually scroll */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  padding-bottom: 16px;          /* breathing room above the nav */
+}
+.app-nav {
+  flex: 0 0 auto;                /* in-flow -> immune to iframe viewport jitter */
+  z-index: 50;
+  background: rgba(10, 10, 15, 0.97);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid rgba(245, 197, 66, 0.15);
+  padding-bottom: var(--tg-safe-area-inset-bottom, 0);
 }
 
 @layer components {

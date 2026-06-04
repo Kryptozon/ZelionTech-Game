@@ -33,9 +33,11 @@ async def effective_stats(pool, user_id):
                  ON uu.code=u.code AND uu.user_id=$1""",
             user_id,
         )
+    # Accumulate effects (multiple upgrades can share a stat, e.g. Reactor Core + Fusion Reactor).
+    # NOTE: must ADD deltas, not overwrite — overwriting let a level-0 upgrade reset another's bonus.
     stats = dict(BASE)
     for r in rows:
-        stats[r["stat"]] = BASE[r["stat"]] + float(r["base_effect"]) * r["level"]
+        stats[r["stat"]] = stats.get(r["stat"], BASE[r["stat"]]) + float(r["base_effect"]) * r["level"]
     stats["points_per_tap"] = int(stats["points_per_tap"])
     stats["max_energy"] = int(stats["max_energy"])
     stats["recharge_rate"] = max(1, int(stats["recharge_rate"]))
