@@ -119,10 +119,21 @@ export default function Quiz({ me, refresh, flash }) {
       {result && (
         <Card className="space-y-2">
           <div className={`font-bold ${result.correct ? 'text-emerald-400' : 'text-rose-400'}`}>
-            {result.correct ? `✅ Correct! +${result.awarded} ZLN-XP` : '❌ Incorrect — no reward'}
+            {result.correct
+              ? `✅ Correct! +${result.awarded} ZLN-XP${result.bonus ? ` (incl. +${result.bonus} streak)` : ''}`
+              : `❌ Incorrect${result.penalty ? ` −${result.penalty} ZLN-XP` : ''}`}
           </div>
+          {!result.correct && result.correct_answer && (
+            <div className="text-sm"><span className="text-white/50">Correct answer:</span>{' '}
+              <span className="text-emerald-300 font-semibold">{result.correct_answer}</span></div>
+          )}
           {result.explanation && <div className="text-sm text-white/70">{result.explanation}</div>}
           <div className="text-xs text-gold">📖 Source: {result.source_section || 'ZelionTech knowledge base'}</div>
+          {result.training_required && (
+            <div className="text-[12px] text-amber-300 border border-amber-400/30 rounded-lg p-2 mt-1">
+              ⚠ Operator Training Required. Review Zelion materials on 📢 Telegram & 📺 YouTube, then return.
+            </div>
+          )}
           <Btn gold className="w-full mt-1" onClick={load}>
             {result.remaining > 0 ? `Next question (${result.completed_count}/${data.total}) →` : 'Finish'}
           </Btn>

@@ -8,6 +8,8 @@ from ..services import economy, users, missions as msvc, proof as psvc
 from ..services import leaderboard, redis_lb, quiz, kb, kb_doc, ai_quiz, analytics
 from ..services import tap as tapsvc, upgrades as upgsvc, tap_missions as tapmis
 from ..services import community as csvc
+from ..services import puzzles as pzsvc
+from ..services import tasks as tasksvc
 
 
 # ---------------- auth helpers ----------------
@@ -239,7 +241,8 @@ async def get_profile(request):
 # ============================================================
 @authed
 async def tap_state(request):
-    return web.json_response(await tapsvc.get_state(request.app["pool"], request["user"]["id"]))
+    return web.json_response(await tapsvc.get_state(
+        request.app["pool"], request.app["redis"], request["user"]["id"]))
 
 
 @authed
@@ -266,7 +269,7 @@ async def upgrade_buy(request):
 
 @authed
 async def passive_get(request):
-    st = await tapsvc.get_state(request.app["pool"], request["user"]["id"])
+    st = await tapsvc.get_state(request.app["pool"], request.app["redis"], request["user"]["id"])
     return web.json_response({"pending": st["passive_pending"], "rate": st["passive_rate"],
                              "cap_hours": st["passive_cap_hours"]})
 
@@ -586,6 +589,104 @@ async def _count(pool, sql):
         return await con.fetchval(sql)
 
 
+# ============================================================
+# TASK / ACHIEVEMENT ENDPOINTS
+# ============================================================
+@authed
+async def tasks_list(request):
+    return web.json_response(await tasksvc.list_chains(request.app["pool"], request["user"]["id"]))
+
+
+@authed
+async def tasks_claim(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    tid = int(request.match_info["id"])
+    res = await tasksvc.claim(pool, redis, request["user"]["id"], tid)
+    return web.json_response(res, status=(400 if res.get("error") else 200))
+
+
+# ============================================================
+# PUZZLE / INTELLIGENCE ENDPOINTS
+# ============================================================
+@authed
+async def puzzles_daily(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    uid = request["user"]["id"]
+    return web.json_response({
+        "daily": await pzsvc.daily(pool, redis, uid),
+        "weekly": await pzsvc.weekly(pool, redis, uid),
+    })
+
+
+@authed
+async def puzzles_answer(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    body = await request.json()
+    res = await pzsvc.answer(pool, redis, request["user"]["id"],
+                             int(body["puzzle_id"]), str(body.get("answer", "")))
+    return web.json_response(res, status=(400 if res.get("error") in ("not_found",) else 200))
+
+
+@authed
+async def puzzles_status(request):
+    pool, redis = request.app["pool"], request.app["redis"]
+    return web.json_response(await pzsvc.status(pool, redis, request["user"]["id"]))
+
+
+@authed
+async def puzzles_history(request):
+    return web.json_response({"history": await pzsvc.history(request.app["pool"], request["user"]["id"])})
+
+
+@authed
+async def puzzles_leaderboard(request):
+    period = request.query.get("period", "week")
+    return web.json_response({"period": period,
+                              "leaderboard": await pzsvc.leaderboard(request.app["pool"], period, 10)})
+
+
+@authed
+@admin_only
+async def admin_puzzles(request):
+    rows = await pzsvc.admin_list(request.app["pool"], request.query.get("difficulty"))
+    return web.json_response({"puzzles": [
+        {"id": r["id"], "title": r["title"], "difficulty": r["difficulty"], "category": r["category"],
+         "answer": r["answer"], "reward": r["reward"], "active": r["active"]} for r in rows]})
+
+
+@authed
+@admin_only
+async def admin_puzzle_activate(request):
+    await pzsvc.set_active(request.app["pool"], int(request.match_info["id"]), True)
+    return web.json_response({"result": "activated"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_deactivate(request):
+    await pzsvc.set_active(request.app["pool"], int(request.match_info["id"]), False)
+    return web.json_response({"result": "deactivated"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_hints(request):
+    return web.json_response(await pzsvc.get_hints(request.app["pool"], int(request.match_info["id"])))
+
+
+@authed
+@admin_only
+async def admin_puzzle_youtube(request):
+    return web.json_response(await pzsvc.get_script(request.app["pool"], int(request.match_info["id"])))
+
+
+@authed
+@admin_only
+async def admin_puzzle_telegram(request):
+    s = await pzsvc.get_script(request.app["pool"], int(request.match_info["id"]))
+    return web.json_response({"telegram_post": s.get("telegram_post", "")})
+
+
 def setup_api(app: web.Application):
     r = app.router
     r.add_get("/api/me", me)
@@ -613,6 +714,21 @@ def setup_api(app: web.Application):
     r.add_get("/api/quiz/daily", quiz_daily)
     r.add_get("/api/quiz/status", quiz_status)
     r.add_get("/api/quiz/rank", quiz_rank)
+    # tasks / achievements
+    r.add_get("/api/tasks", tasks_list)
+    r.add_post("/api/tasks/{id}/claim", tasks_claim)
+    # puzzles / intelligence
+    r.add_get("/api/puzzles/daily", puzzles_daily)
+    r.add_post("/api/puzzles/answer", puzzles_answer)
+    r.add_get("/api/puzzles/status", puzzles_status)
+    r.add_get("/api/puzzles/history", puzzles_history)
+    r.add_get("/api/puzzles/leaderboard", puzzles_leaderboard)
+    r.add_get("/api/admin/puzzles", admin_puzzles)
+    r.add_post("/api/admin/puzzles/{id}/activate", admin_puzzle_activate)
+    r.add_post("/api/admin/puzzles/{id}/deactivate", admin_puzzle_deactivate)
+    r.add_get("/api/admin/puzzles/{id}/hints", admin_puzzle_hints)
+    r.add_get("/api/admin/puzzles/{id}/youtube-script", admin_puzzle_youtube)
+    r.add_get("/api/admin/puzzles/{id}/telegram-post", admin_puzzle_telegram)
     # community
     r.add_get("/api/community", community_overview)
     r.add_post("/api/community/missions/{id}/claim", community_claim)

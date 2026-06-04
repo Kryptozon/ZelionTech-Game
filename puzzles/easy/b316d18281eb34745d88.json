@@ -1,0 +1,17 @@
+{
+  "slug": "b316d18281eb34745d88",
+  "title": "Reactor Binary: decode this",
+  "question": "Decode the 8-bit binary:\n01000011 01001111 01001111 01010010 01000100 01001001 01001110 01000001 01010100 01001001 01001111 01001110",
+  "answer": "COORDINATION",
+  "difficulty": "easy",
+  "reward": 20,
+  "penalty": 2,
+  "category": "Binary Challenge",
+  "hint1": "The answer is a core Zelion ecosystem term.",
+  "hint2": "Decode the binary challenge carefully \u2014 letters map to a Zelion word.",
+  "hint3": "Watch the YouTube clue and read the Telegram drop for the exact placement.",
+  "source": "Zelion Whitepaper v3 / zeliontech.com",
+  "youtube_instruction": "Today's clue is hidden on \ud83d\udcfa YouTube as a Morse flash.",
+  "telegram_instruction": "A hint is in \ud83d\udce2 the latest Intelligence Drop on the Telegram channel.",
+  "explanation": "Each byte is an ASCII letter spelling COORDINATION."
+}

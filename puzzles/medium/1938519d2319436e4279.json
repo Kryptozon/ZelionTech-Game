@@ -1,0 +1,17 @@
+{
+  "slug": "1938519d2319436e4279",
+  "title": "Reactor ROT13 cipher",
+  "question": "Apply ROT13 to decode:\nFRDHRAPR",
+  "answer": "SEQUENCE",
+  "difficulty": "medium",
+  "reward": 50,
+  "penalty": 2,
+  "category": "Reactor Cipher",
+  "hint1": "The answer is a core Zelion ecosystem term.",
+  "hint2": "Decode the reactor cipher carefully \u2014 letters map to a Zelion word.",
+  "hint3": "Watch the YouTube clue and read the Telegram drop for the exact placement.",
+  "source": "Zelion Whitepaper v3 / zeliontech.com",
+  "youtube_instruction": "Today's clue is hidden on \ud83d\udcfa YouTube as a Morse flash.",
+  "telegram_instruction": "A hint is in \ud83d\udce2 the latest Intelligence Drop on the Telegram channel.",
+  "explanation": "ROT13 of FRDHRAPR is SEQUENCE."
+}

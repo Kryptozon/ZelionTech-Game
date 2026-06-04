@@ -2,39 +2,46 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: dark; --app-height: 100dvh; }
+:root { color-scheme: dark; --app-height: 100dvh; --nav-h: 72px; }
 
-html, body, #root { height: 100%; margin: 0; }
-/* Lock the document so Telegram's oscillating viewport can't shift the layout. */
-html, body { overflow: hidden; overscroll-behavior: none; }
-body {
-  background:
-    radial-gradient(1200px 600px at 50% -10%, rgba(245,197,66,0.12), transparent 60%),
-    #0a0a0f;
-  color: #e9e9f0;
-  -webkit-tap-highlight-color: transparent;
-}
-/* Root is pinned to a STABLE height (set from Telegram viewportStableHeight). */
+/* Solid dark base everywhere so no white browser/body background can show through. */
+html, body, #root { height: 100%; margin: 0; background: #050507; overflow: hidden; }
+html, body { overscroll-behavior: none; }
+body { color: #e9e9f0; -webkit-tap-highlight-color: transparent; }
+*, *::before, *::after { box-sizing: border-box; }
+
+/* Root pinned to a STABLE height (set from Telegram viewportStableHeight). */
 #root { height: var(--app-height, 100dvh); }
 
-/* App shell: header (fixed top) · scrollable main · nav (pinned bottom, in normal flow). */
-.app-shell { display: flex; flex-direction: column; height: 100%; }
+/* App shell: header (top) · scrollable main · fixed nav. Subtle glow lives here, on a solid base. */
+.app-shell {
+  position: relative;
+  display: flex; flex-direction: column;
+  height: 100%; overflow: hidden;
+  background:
+    radial-gradient(1200px 600px at 50% -10%, rgba(245,197,66,0.12), transparent 60%),
+    #050507;
+}
 .app-header { flex: 0 0 auto; padding-top: var(--tg-safe-area-inset-top, 0); }
 .app-main {
   flex: 1 1 auto;
   min-height: 0;                 /* allow the flex child to actually scroll */
+  width: 100%;
+  overflow-x: hidden;            /* no horizontal overflow from bars/effects */
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
-  padding-bottom: 16px;          /* breathing room above the nav */
+  /* Clear the fixed nav: nav height + a little breathing room + safe area. */
+  padding-bottom: calc(var(--nav-h) + 18px + var(--tg-safe-area-inset-bottom, 0px));
 }
+/* Bottom nav: fixed, solid, opaque — no backdrop-filter (it leaves a white seam). */
 .app-nav {
-  flex: 0 0 auto;                /* in-flow -> immune to iframe viewport jitter */
-  z-index: 50;
-  background: rgba(10, 10, 15, 0.97);
-  backdrop-filter: blur(8px);
-  border-top: 1px solid rgba(245, 197, 66, 0.15);
+  position: fixed; left: 0; right: 0; bottom: 0;
+  height: calc(var(--nav-h) + var(--tg-safe-area-inset-bottom, 0px));
   padding-bottom: var(--tg-safe-area-inset-bottom, 0);
+  z-index: 50;
+  background: #07070a;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 @layer components {

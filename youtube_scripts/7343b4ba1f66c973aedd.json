@@ -1,0 +1,11 @@
+{
+  "puzzle_id": "7343b4ba1f66c973aedd",
+  "youtube_title": "\u26a1 Zelion Reactor Intelligence Briefing \u2014 Binary Challenge",
+  "youtube_script": "Operator, today's Reactor Mystery has been activated.\nThe answer is tied to Zelion's binary challenge. Each byte is an ASCII letter spelling NETWORK.\nOnly true Reactors will discover it.",
+  "clue_timestamp": "0:58",
+  "visual_clue": "At 0:58, flash the answer as Morse/overlay for 0.5s.",
+  "audio_clue": "Optional: a short beep pattern spelling the first letter.",
+  "caption_clue": "Hide the first letters of subtitle lines to spell a hint.",
+  "cta": "Open Zelion Reactor and solve today's puzzle.",
+  "telegram_post": "\u26a1 Reactor Intelligence Drop\n\nToday's mystery is a Binary Challenge.\nThe answer is not Bitcoin. The answer is not Solana.\nOpen the Reactor and submit your answer.\n\n#Zelion #ReactorChallenge"
+}

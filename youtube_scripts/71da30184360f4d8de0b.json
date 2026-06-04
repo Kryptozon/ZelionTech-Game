@@ -1,0 +1,11 @@
+{
+  "puzzle_id": "71da30184360f4d8de0b",
+  "youtube_title": "\u26a1 Zelion Reactor Intelligence Briefing \u2014 Reactor Cipher",
+  "youtube_script": "Operator, today's Reactor Mystery has been activated.\nThe answer is tied to Zelion's reactor cipher. ROT13 of QRCVA is DEPIN.\nOnly true Reactors will discover it.",
+  "clue_timestamp": "0:40",
+  "visual_clue": "At 0:40, flash the answer as Morse/overlay for 0.5s.",
+  "audio_clue": "Optional: a short beep pattern spelling the first letter.",
+  "caption_clue": "Hide the first letters of subtitle lines to spell a hint.",
+  "cta": "Open Zelion Reactor and solve today's puzzle.",
+  "telegram_post": "\u26a1 Reactor Intelligence Drop\n\nToday's mystery is a Reactor Cipher.\nThe answer is not Bitcoin. The answer is not Solana.\nOpen the Reactor and submit your answer.\n\n#Zelion #ReactorChallenge"
+}

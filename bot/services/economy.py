@@ -8,8 +8,13 @@ Phase 3 additions:
 from datetime import datetime, timezone, timedelta
 import asyncpg
 
-RANKS = {1: "⚡ Spark", 2: "🔋 Charge", 3: "☢️ Reactor", 4: "🌐 Grid", 5: "🔮 Oracle"}
-LEVEL_THRESHOLDS = [(5, 12000), (4, 4000), (3, 1000), (2, 250), (1, 0)]
+RANKS = {1: "⚡ Spark", 2: "🔋 Charge", 3: "☢️ Reactor", 4: "🌐 Grid", 5: "🔮 Oracle",
+         6: "🌌 Oracle II", 7: "🌠 Singularity", 8: "💫 Ascendant", 9: "🛸 Apex", 10: "👑 Zelion Master"}
+
+# Harder level curve: cumulative XP to BE at `level` = BASE_XP * (level-1)^1.8
+# (≈ L2:250, L3:870, L4:1805, L5:3027, L6:4524 ... grows steeply, anti-farm).
+BASE_XP = 250
+LEVEL_EXP = 1.8
 
 DAILY_TABLE = {1: (50, 10), 2: (55, 15), 3: (60, 20), 4: (70, 25), 5: (80, 35), 6: (90, 45)}
 DAILY_MAX = (100, 60)
@@ -28,18 +33,27 @@ def _now():
     return datetime.now(timezone.utc)
 
 
+def xp_threshold(level: int) -> int:
+    """Cumulative XP required to reach `level` (level 1 = 0)."""
+    if level <= 1:
+        return 0
+    return round(BASE_XP * (level - 1) ** LEVEL_EXP)
+
+
 def level_for(points: int) -> int:
-    for lvl, req in LEVEL_THRESHOLDS:
-        if points >= req:
-            return lvl
-    return 1
+    lvl = 1
+    while lvl < 999 and xp_threshold(lvl + 1) <= points:
+        lvl += 1
+    return lvl
 
 
 def next_threshold(points: int):
-    for lvl, req in sorted(LEVEL_THRESHOLDS):
-        if points < req:
-            return lvl, req
-    return None
+    lvl = level_for(points)
+    return (lvl + 1, xp_threshold(lvl + 1))
+
+
+def rank_name(level: int) -> str:
+    return RANKS.get(level, RANKS[10] if level > 10 else "⚡ Spark")
 
 
 # ---------------- helpers ----------------
@@ -92,6 +106,26 @@ async def award_points(pool, user_id, amount, reason, ref_id, redis=None, surge=
 
     return {"ok": True, "leveled": leveled, "level": new_level,
             "awarded": final, "shadow": shadow, "multiplier": mult}
+
+
+async def deduct_points(pool, user_id, amount, reason, ref_id):
+    """Penalty: subtract ZLN-XP but NEVER below 0; never lowers level. Idempotent."""
+    amount = abs(int(amount))
+    async with pool.acquire() as con:
+        cur = await con.fetchval("SELECT points FROM users WHERE id=$1", user_id) or 0
+        take = min(cur, amount)
+        if take <= 0:
+            return {"deducted": 0, "balance": cur}
+        try:
+            await con.execute(
+                "INSERT INTO points_ledger(user_id, amount, reason, ref_id) VALUES($1,$2,$3,$4)",
+                user_id, -take, reason, ref_id)
+        except asyncpg.UniqueViolationError:
+            return {"deducted": 0, "balance": cur}
+        newbal = await con.fetchval(
+            "UPDATE users SET points = GREATEST(0, points - $1) WHERE id=$2 RETURNING points",
+            take, user_id)
+    return {"deducted": take, "balance": newbal}
 
 
 # ---------------- Energy ----------------

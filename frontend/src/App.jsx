@@ -8,14 +8,17 @@ import Quiz from './screens/Quiz'
 import Leaderboard from './screens/Leaderboard'
 import Profile from './screens/Profile'
 import Community from './screens/Community'
+import Intelligence from './screens/Intelligence'
+import Tasks from './screens/Tasks'
 import Admin from './screens/Admin'
 
 const TABS = [
   { id: 'reactor', label: 'Reactor', icon: '⚛️' },
   { id: 'quiz', label: 'Quiz', icon: '🧠' },
-  { id: 'community', label: 'Community', icon: '💬' },
+  { id: 'intel', label: 'Intel', icon: '🧩' },
+  { id: 'community', label: 'Group', icon: '💬' },
   { id: 'ranks', label: 'Ranks', icon: '🏆' },
-  { id: 'profile', label: 'Profile', icon: '👤' },
+  { id: 'profile', label: 'You', icon: '👤' },
 ]
 
 export default function App() {
@@ -64,6 +67,8 @@ export default function App() {
         {tab === 'lab' && <Lab refresh={refresh} flash={flash} />}
         {tab === 'missions' && <Missions refresh={refresh} flash={flash} />}
         {tab === 'quiz' && <Quiz me={me} refresh={refresh} flash={flash} />}
+        {tab === 'intel' && <Intelligence refresh={refresh} flash={flash} />}
+        {tab === 'tasks' && <Tasks refresh={refresh} flash={flash} go={setTab} />}
         {tab === 'community' && <Community refresh={refresh} flash={flash} />}
         {tab === 'ranks' && <Leaderboard />}
         {tab === 'profile' && <Profile />}
@@ -71,11 +76,11 @@ export default function App() {
       </main>
 
       <nav className="app-nav">
-        <div className="flex">
+        <div className="flex max-w-md mx-auto h-[72px] items-center">
           {tabs.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
-              className={`flex-1 py-3 text-center text-[11px] font-semibold ${tab === t.id ? 'text-gold' : 'text-white/45'}`}>
-              <div className="text-lg">{t.icon}</div>{t.label}
+              className={`flex-1 text-center text-[11px] font-semibold ${tab === t.id ? 'text-gold' : 'text-white/45'}`}>
+              <div className="text-lg leading-none mb-0.5">{t.icon}</div>{t.label}
             </button>
           ))}
         </div>

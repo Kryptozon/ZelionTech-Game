@@ -117,6 +117,23 @@ async def _bootstrap():
         log.info("✓ Quiz bank ready — %s active question(s) (seeded %s)", active, seeded)
     except Exception as e:
         log.warning("quiz ensure_min failed: %s", e)
+
+    # Guarantee a playable puzzle bank on boot (~200 generated puzzles).
+    from .services import puzzle_seed
+    try:
+        pz = await puzzle_seed.ensure_min(pool, minimum=50)
+        pz_active = await puzzle_seed.count_active(pool)
+        log.info("✓ Puzzle bank ready — %s active puzzle(s) (seeded %s)", pz_active, pz)
+    except Exception as e:
+        log.warning("puzzle ensure_min failed: %s", e)
+
+    # Seed progressive task chains on boot.
+    from .services import tasks as tasksvc
+    try:
+        await tasksvc.ensure_seed(pool)
+        log.info("✓ Task chains ready — %s chain(s)", await tasksvc.count_chains(pool))
+    except Exception as e:
+        log.warning("task seed failed: %s", e)
     await _validate_reachability(bot)
 
     dp = build_dispatcher(pool, redis)

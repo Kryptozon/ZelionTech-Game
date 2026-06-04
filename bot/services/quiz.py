@@ -22,8 +22,10 @@ SESSION_HOURS = 24
 
 # ZLN-XP by difficulty tier (req): beginner=5, intermediate=10, advanced=20, expert=35
 XP_BY_DIFF = {1: 5, 2: 10, 3: 20, 4: 35, 5: 35}
-STREAK_BONUS = {3: 10, 5: 25, 10: 50}
-STREAK_CAP = 10
+STREAK_BONUS = {5: 10, 10: 25, 25: 100}        # 5/10/25 correct in a row
+WRONG_PENALTY = 1                               # -1 ZLN-XP per wrong (never below 0)
+WRONG_STREAK_LIMIT = 5                          # 5 wrong in a row -> training required
+TRAINING_COOLDOWN_SEC = 300
 
 QUIZ_RANKS = [
     (0, "Reactor Cadet"), (10, "Energy Validator"), (30, "Grid Architect"),
@@ -206,19 +208,30 @@ async def submit_answer(pool, redis, user_id, question_id, chosen_index):
     original_choice = order[chosen_index] if 0 <= chosen_index < len(order) else -1
     correct = (original_choice == q["correct_index"])
     shuffled_correct_index = order.index(q["correct_index"])
+    correct_answer = opts[q["correct_index"]]
     base = q["reward"] or XP_BY_DIFF.get(q["difficulty"], 10)
-    awarded, streak, bonus, special = 0, 0, 0, False
+    awarded, streak, bonus, special, penalty, training = 0, 0, 0, False, 0, False
 
     if correct:
+        await redis.delete(f"quizwrong:{user_id}")
         streak = await redis.incr(f"quizstreak:{user_id}")
         await redis.expire(f"quizstreak:{user_id}", 86400)
         bonus = STREAK_BONUS.get(streak, 0)
-        special = (streak == 10)
+        special = streak in STREAK_BONUS
         awarded = base + bonus
         res = await economy.award_points(pool, user_id, awarded, "quiz",
                                          f"q:{question_id}", redis=redis, surge=True)
     else:
         await redis.delete(f"quizstreak:{user_id}")
+        # Penalty: -1 ZLN-XP (never below 0). Learning, not punishing.
+        d = await economy.deduct_points(pool, user_id, WRONG_PENALTY, "quiz_penalty", f"qp:{question_id}:{user_id}")
+        penalty = d["deducted"]
+        wrong = await redis.incr(f"quizwrong:{user_id}")
+        await redis.expire(f"quizwrong:{user_id}", 86400)
+        if wrong >= WRONG_STREAK_LIMIT:           # Operator Training Required
+            training = True
+            await redis.set(f"quizcd:{user_id}", "1", ex=TRAINING_COOLDOWN_SEC)
+            await redis.delete(f"quizwrong:{user_id}")
         res = {"leveled": False, "level": None}
 
     async with pool.acquire() as con:
@@ -239,7 +252,9 @@ async def submit_answer(pool, redis, user_id, question_id, chosen_index):
     countdown = max(0, int((sess["expires_at"] - _now()).total_seconds()))
     return {
         "correct": correct, "correct_index": shuffled_correct_index,
-        "base": base, "bonus": bonus, "awarded": awarded, "streak": streak, "special": special,
+        "correct_answer": correct_answer,
+        "base": base, "bonus": bonus, "awarded": awarded, "penalty": penalty,
+        "streak": streak, "special": special, "training_required": training,
         "explanation": q["explanation"], "source_section": q["source_section"],
         "source_url": q["source_url"],
         "completed_count": done, "remaining": max(0, DAILY_SIZE - done),

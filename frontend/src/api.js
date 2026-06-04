@@ -61,6 +61,20 @@ export const api = {
   rejectQuestion: (id) => req(`/admin/questions/${id}/reject`, { method: 'POST' }),
   kbRefresh: () => req('/admin/kb/refresh', { method: 'POST' }),
 
+  // tasks / achievements
+  tasks: () => req('/tasks'),
+  claimTask: (id) => req(`/tasks/${id}/claim`, { method: 'POST' }),
+
+  // puzzles / intelligence
+  puzzlesDaily: () => req('/puzzles/daily'),
+  puzzleAnswer: (puzzle_id, answer) =>
+    req('/puzzles/answer', { method: 'POST', body: JSON.stringify({ puzzle_id, answer }) }),
+  puzzlesStatus: () => req('/puzzles/status'),
+  puzzlesHistory: () => req('/puzzles/history'),
+  puzzlesLeaderboard: (period = 'week') => req('/puzzles/leaderboard?period=' + period),
+  adminPuzzles: (difficulty) => req('/admin/puzzles' + (difficulty ? '?difficulty=' + difficulty : '')),
+  puzzleHints: (id) => req(`/admin/puzzles/${id}/hints`),
+
   // community
   community: () => req('/community'),
   claimGroupMission: (id) => req(`/community/missions/${id}/claim`, { method: 'POST' }),
