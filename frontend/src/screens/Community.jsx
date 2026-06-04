@@ -3,11 +3,20 @@ import { api } from '../api'
 import { Card, Btn, Chip, Spinner, Progress, Logo } from '../ui'
 import { tg } from '../telegram'
 
+const EMPTY = {
+  discussion: null, missions: [], top_today: [], top_week: [], top_month: [],
+  score: { today: 0, messages: 0, replies: 0, reactions: 0, discussion: 0, days_week: 0 },
+  surge_multiplier: 1, group_link: null,
+}
+
 export default function Community({ refresh, flash }) {
   const [d, setD] = useState(null)
   const [board, setBoard] = useState('today')
 
-  const load = async () => { try { setD(await api.community()) } catch (e) { flash(e.message, 'red') } }
+  // Never surface technical errors — fall back to a warming-up empty state.
+  const load = async () => {
+    try { setD(await api.community()) } catch (e) { setD(EMPTY) }
+  }
   useEffect(() => { load() }, [])
 
   const claim = async (id) => {
@@ -25,7 +34,7 @@ export default function Community({ refresh, flash }) {
   }
 
   if (!d) return <Spinner />
-  const rows = board === 'today' ? d.top_today : d.top_week
+  const rows = board === 'today' ? d.top_today : board === 'week' ? d.top_week : (d.top_month || [])
   const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣']
 
   return (
@@ -67,6 +76,9 @@ export default function Community({ refresh, flash }) {
       </Card>
 
       <div className="label">🎯 Group Missions</div>
+      {d.missions.length === 0 && (
+        <Card className="text-center text-white/40 text-sm">Community warming up — missions appear once activity starts.</Card>
+      )}
       {d.missions.map((m) => (
         <Card key={m.id}>
           <div className="flex items-center gap-3">
@@ -84,13 +96,13 @@ export default function Community({ refresh, flash }) {
 
       <div className="label">🏆 Top Contributors</div>
       <div className="flex gap-2">
-        {[['today', 'Today'], ['week', 'This Week']].map(([id, l]) => (
+        {[['today', 'Today'], ['week', 'Week'], ['month', 'Month']].map(([id, l]) => (
           <button key={id} onClick={() => setBoard(id)}
             className={`flex-1 btn text-xs ${board === id ? 'btn-gold' : 'btn-ghost'}`}>{l}</button>
         ))}
       </div>
       <Card>
-        {rows.length === 0 ? <div className="text-center text-white/40 py-4">No activity yet — start chatting!</div>
+        {rows.length === 0 ? <div className="text-center text-white/40 py-4">No leaderboard data yet — be the first to contribute!</div>
           : rows.map((r, i) => (
             <div key={i} className="flex justify-between py-1.5 border-b border-white/5 last:border-0">
               <span>{medals[i] || `${i + 1}.`} {r.name}</span>

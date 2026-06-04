@@ -146,8 +146,11 @@ async def contribution_score(pool, user_id):
 
 
 async def group_leaderboard(pool, period="today", limit=10):
-    window = "created_at::date = CURRENT_DATE" if period == "today" \
-        else "created_at >= date_trunc('week', now())"
+    window = {
+        "today": "created_at::date = CURRENT_DATE",
+        "week": "created_at >= date_trunc('week', now())",
+        "month": "created_at >= date_trunc('month', now())",
+    }.get(period, "created_at::date = CURRENT_DATE")
     sql = (
         "SELECT g.user_id, COALESCE(u.username, u.first_name, g.user_id::text) AS name, "
         "SUM(CASE g.kind WHEN 'message' THEN 2 WHEN 'reply' THEN 3 WHEN 'reaction' THEN 1 "

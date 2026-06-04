@@ -63,4 +63,9 @@ export const api = {
   // community
   community: () => req('/community'),
   claimGroupMission: (id) => req(`/community/missions/${id}/claim`, { method: 'POST' }),
+  groupActivity: () => req('/group/activity'),
+  groupMissions: () => req('/group/missions'),
+  groupLeaderboard: (period = 'today') => req('/group/leaderboard?period=' + period),
+  groupDiscussion: () => req('/group/daily-discussion'),
+  groupHealth: () => req('/group/health'),
 }

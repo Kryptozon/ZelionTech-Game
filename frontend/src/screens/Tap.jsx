@@ -104,8 +104,10 @@ export default function Tap({ me, refresh, flash, go }) {
         </div>
       )}
 
-      {/* Reactor Core button */}
+      {/* Reactor Core button — the real Zelion PNG with neon energy aura */}
       <div ref={wrapRef} className="relative mx-auto" style={{ width: 280, height: 280 }}>
+        <div className="energy-aura" />
+        <div className="energy-aura-2" />
         <div className="reactor-ring reactor-pulse" />
         <div className="reactor-ring" style={{ inset: 18, opacity: 0.5 }} />
         <button
@@ -113,7 +115,7 @@ export default function Tap({ me, refresh, flash, go }) {
           className="reactor-core absolute inset-6 rounded-full flex items-center justify-center"
           style={{ background: 'radial-gradient(circle at 50% 35%, #1b1b27, #0b0b12 70%)',
                    border: '2px solid rgba(245,197,66,0.5)' }}>
-          <Logo size={150} />
+          <span className="logo-glow"><Logo size={150} /></span>
           <span className="tap-wave" key={combo} />
         </button>
         {floats.map((f) => (

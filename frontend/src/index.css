@@ -78,3 +78,28 @@ body {
 .spark { position:absolute; width:3px; height:14px; background:linear-gradient(#fff,#f5c542);
   border-radius:2px; pointer-events:none; animation: spark .5s ease-out forwards; }
 @keyframes spark { to { opacity:0; transform: translateY(-30px) rotate(20deg); } }
+
+/* ---------- Premium logo energy aura (CSS only, around the real PNG) ---------- */
+.energy-aura {
+  position: absolute; inset: -10px; border-radius: 9999px; pointer-events: none;
+  background: conic-gradient(from 0deg,
+    rgba(245,197,66,0) 0deg, rgba(245,197,66,0.55) 60deg, rgba(255,231,138,0) 140deg,
+    rgba(245,197,66,0.55) 220deg, rgba(245,197,66,0) 300deg);
+  filter: blur(7px); opacity: 0.85; animation: auraSpin 4.5s linear infinite;
+}
+.energy-aura-2 {
+  position: absolute; inset: 6px; border-radius: 9999px; pointer-events: none;
+  background: conic-gradient(from 180deg, rgba(255,231,138,0), rgba(245,197,66,0.4), rgba(255,231,138,0));
+  filter: blur(4px); animation: auraSpin 7s linear infinite reverse;
+}
+@keyframes auraSpin { to { transform: rotate(360deg); } }
+
+/* Stronger gold glow + gentle pulse on the logo image itself */
+.logo-glow img, img.logo-glow {
+  filter: drop-shadow(0 0 14px rgba(245,197,66,0.85)) drop-shadow(0 0 34px rgba(245,197,66,0.4));
+  animation: logoPulse 2.6s ease-in-out infinite;
+}
+@keyframes logoPulse {
+  0%,100% { transform: scale(1); }
+  50%     { transform: scale(1.04); }
+}

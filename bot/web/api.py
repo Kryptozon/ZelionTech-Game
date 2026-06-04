@@ -449,24 +449,38 @@ async def admin_question_reject(request):
 
 
 # ============================================================
-# COMMUNITY ENDPOINTS
+# COMMUNITY ENDPOINTS  (hardened — never 500; return safe empty defaults)
 # ============================================================
+async def _safe(coro, default, label):
+    try:
+        return await coro
+    except Exception as e:
+        log.warning("community %s failed: %s", label, e)
+        return default
+
+
+def _group_link():
+    g = str(settings.GROUP_CHAT_ID)
+    return f"https://t.me/c/{g[4:]}" if g.startswith("-100") else None
+
+
 @authed
 async def community_overview(request):
     pool, redis = request.app["pool"], request.app["redis"]
     uid = request["user"]["id"]
     from ..services import events as esvc
-    surge = await esvc.surge_active(redis)
-    group_link = (f"https://t.me/c/{str(settings.GROUP_CHAT_ID)[4:]}"
-                  if str(settings.GROUP_CHAT_ID).startswith("-100") else None)
+    surge = await _safe(esvc.surge_active(redis), 1, "surge")
     return web.json_response({
-        "discussion": await csvc.todays_discussion(pool),
-        "missions": await csvc.list_missions(pool, uid),
-        "score": await csvc.contribution_score(pool, uid),
-        "top_today": await csvc.group_leaderboard(pool, "today", 10),
-        "top_week": await csvc.group_leaderboard(pool, "week", 10),
+        "discussion": await _safe(csvc.todays_discussion(pool), None, "discussion"),
+        "missions": await _safe(csvc.list_missions(pool, uid), [], "missions"),
+        "score": await _safe(csvc.contribution_score(pool, uid),
+                             {"today": 0, "messages": 0, "replies": 0, "reactions": 0,
+                              "discussion": 0, "days_week": 0}, "score"),
+        "top_today": await _safe(csvc.group_leaderboard(pool, "today", 10), [], "lb_today"),
+        "top_week": await _safe(csvc.group_leaderboard(pool, "week", 10), [], "lb_week"),
+        "top_month": await _safe(csvc.group_leaderboard(pool, "month", 10), [], "lb_month"),
         "surge_multiplier": surge,
-        "group_link": group_link,
+        "group_link": _group_link(),
     })
 
 
@@ -476,6 +490,63 @@ async def community_claim(request):
     mid = int(request.match_info["id"])
     res = await csvc.claim_mission(pool, redis, request["user"]["id"], mid)
     return web.json_response(res, status=(400 if res.get("error") else 200))
+
+
+# ---- Granular /api/group/* routes (each independent & safe) ----
+@authed
+async def group_activity_ep(request):
+    pool = request.app["pool"]
+    uid = request["user"]["id"]
+    score = await _safe(csvc.contribution_score(pool, uid),
+                        {"today": 0, "messages": 0, "replies": 0, "reactions": 0,
+                         "discussion": 0, "days_week": 0}, "activity")
+    return web.json_response({"score": score, "group_link": _group_link()})
+
+
+@authed
+async def group_missions_ep(request):
+    pool, uid = request.app["pool"], request["user"]["id"]
+    return web.json_response({"missions": await _safe(csvc.list_missions(pool, uid), [], "missions")})
+
+
+@authed
+async def group_leaderboard_ep(request):
+    pool = request.app["pool"]
+    period = request.query.get("period", "today")
+    return web.json_response({"period": period,
+                              "leaderboard": await _safe(csvc.group_leaderboard(pool, period, 10), [], "lb")})
+
+
+@authed
+async def group_discussion_ep(request):
+    pool = request.app["pool"]
+    return web.json_response({"discussion": await _safe(csvc.todays_discussion(pool), None, "discussion"),
+                              "group_link": _group_link()})
+
+
+@authed
+async def group_health_ep(request):
+    pool, bot = request.app["pool"], request.app["bot"]
+    can = False
+    try:
+        await bot.get_chat(settings.GROUP_CHAT_ID)
+        can = True
+    except Exception as e:
+        log.warning("group health get_chat failed: %s", e)
+    activity = await _safe(_count(pool, "SELECT count(*) FROM group_activity"), 0, "activity_count")
+    disc = await _safe(csvc.todays_discussion(pool), None, "discussion")
+    return web.json_response({
+        "status": "ok",
+        "bot_can_access_group": can,
+        "group_chat_id": settings.GROUP_CHAT_ID,
+        "activity_count": activity,
+        "discussion_available": disc is not None,
+    })
+
+
+async def _count(pool, sql):
+    async with pool.acquire() as con:
+        return await con.fetchval(sql)
 
 
 def setup_api(app: web.Application):
@@ -507,6 +578,12 @@ def setup_api(app: web.Application):
     # community
     r.add_get("/api/community", community_overview)
     r.add_post("/api/community/missions/{id}/claim", community_claim)
+    # granular group routes (resilient)
+    r.add_get("/api/group/activity", group_activity_ep)
+    r.add_get("/api/group/missions", group_missions_ep)
+    r.add_get("/api/group/leaderboard", group_leaderboard_ep)
+    r.add_get("/api/group/daily-discussion", group_discussion_ep)
+    r.add_get("/api/group/health", group_health_ep)
     # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)
     r.add_get("/api/admin/proofs/{id}/image", admin_proof_image)
