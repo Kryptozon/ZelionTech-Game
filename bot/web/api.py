@@ -3,7 +3,7 @@ import json
 from aiohttp import web
 
 from ..config import settings
-from .auth import validate_init_data
+from .auth import validate_init_data, make_admin_token, verify_admin_token
 from ..services import economy, users, missions as msvc, proof as psvc
 from ..services import leaderboard, redis_lb, quiz, kb, kb_doc, ai_quiz, analytics
 from ..services import tap as tapsvc, upgrades as upgsvc, tap_missions as tapmis
@@ -37,9 +37,15 @@ def authed(handler):
 
 
 def admin_only(handler):
+    """Requires BOTH: Telegram ID in ADMIN_IDS AND a valid admin session token
+    (issued by /api/admin/login after the password check). Server-side only."""
     async def inner(request):
-        if not settings.is_admin(request["user"]["id"]):
+        uid = request["user"]["id"]
+        if not settings.is_admin(uid):
             return web.json_response({"error": "forbidden"}, status=403)
+        token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
+        if not verify_admin_token(token, uid):
+            return web.json_response({"error": "admin_auth_required"}, status=403)
         return await handler(request)
     return inner
 
@@ -342,10 +348,24 @@ async def quiz_status(request):
 # ============================================================
 @authed
 async def admin_me(request):
-    """Authed (not admin-gated): tells the client whether THIS user is the admin."""
+    """Authed (not admin-gated): tells the client whether THIS user is the admin
+    and whether the current admin token (if any) is still valid."""
     uid = request["user"]["id"]
+    token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
     return web.json_response({"is_admin": settings.is_admin(uid), "id": uid,
-                              "admin_ids": settings.ADMIN_IDS})
+                              "authed": settings.is_admin(uid) and verify_admin_token(token, uid)})
+
+
+@authed
+async def admin_login(request):
+    """Verify the super-admin password server-side; return a signed session token."""
+    uid = request["user"]["id"]
+    if not settings.is_admin(uid):
+        return web.json_response({"error": "forbidden"}, status=403)
+    body = await request.json() if request.can_read_body else {}
+    if not settings.check_admin_password(body.get("password", "")):
+        return web.json_response({"error": "wrong_password"}, status=403)
+    return web.json_response({"token": make_admin_token(uid), "ttl": 12 * 3600})
 
 
 @authed
@@ -684,10 +704,31 @@ async def admin_puzzles(request):
          "accepted_variations": r.get("accepted_variations"), "explanation": r["explanation"],
          "source_topic": r.get("source_topic"), "reward": r["reward"],
          "status": r.get("status", "active"), "active": r["active"],
+         "walkthrough": r.get("walkthrough"),
          "hint1": r["hint1"], "hint2": r["hint2"], "hint3": r["hint3"],
          "released_hints": r.get("released_hints", 0),
          "youtube_posted": r.get("youtube_posted", False),
          "telegram_posted": r.get("telegram_posted", False)} for r in rows]})
+
+
+@authed
+@admin_only
+async def admin_puzzle_overview(request):
+    return web.json_response(await pzsvc.admin_overview(request.app["pool"]))
+
+
+@authed
+@admin_only
+async def admin_puzzle_release(request):
+    await pzsvc.release_puzzle(request.app["pool"], int(request.match_info["id"]))
+    return web.json_response({"result": "released"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_reopen(request):
+    await pzsvc.release_puzzle(request.app["pool"], int(request.match_info["id"]))
+    return web.json_response({"result": "reopened"})
 
 
 @authed
@@ -785,6 +826,9 @@ def setup_api(app: web.Application):
     r.add_get("/api/admin/puzzles", admin_puzzles)
     r.add_post("/api/admin/puzzles/{id}/activate", admin_puzzle_activate)
     r.add_post("/api/admin/puzzles/{id}/deactivate", admin_puzzle_deactivate)
+    r.add_get("/api/admin/puzzles/overview", admin_puzzle_overview)
+    r.add_post("/api/admin/puzzles/{id}/release", admin_puzzle_release)
+    r.add_post("/api/admin/puzzles/{id}/reopen", admin_puzzle_reopen)
     r.add_post("/api/admin/puzzles/{id}/skip", admin_puzzle_skip)
     r.add_post("/api/admin/puzzles/{id}/release-hint", admin_puzzle_release_hint)
     r.add_post("/api/admin/puzzles/{id}/mark-posted/{platform}", admin_puzzle_mark_posted)
@@ -800,8 +844,9 @@ def setup_api(app: web.Application):
     r.add_get("/api/group/leaderboard", group_leaderboard_ep)
     r.add_get("/api/group/daily-discussion", group_discussion_ep)
     r.add_get("/api/group/health", group_health_ep)
-    # admin — identity + user search
+    # admin — identity + login + user search
     r.add_get("/api/admin/me", admin_me)
+    r.add_post("/api/admin/login", admin_login)
     r.add_get("/api/admin/users", admin_users)
     # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)

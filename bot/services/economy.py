@@ -103,6 +103,9 @@ async def award_points(pool, user_id, amount, reason, ref_id, redis=None, surge=
     if redis is not None and final > 0:
         await redis.zincrby(LB_ALL, final, str(user_id))
         await redis.zincrby(LB_WEEK, final, str(user_id))
+    # Level-up perk: refill the hourly reactor capacity to maximum.
+    if leveled and redis is not None:
+        await redis.delete(f"taphr:{user_id}")
 
     return {"ok": True, "leveled": leveled, "level": new_level,
             "awarded": final, "shadow": shadow, "multiplier": mult}

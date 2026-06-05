@@ -120,8 +120,8 @@ export default function Quiz({ me, refresh, flash }) {
         <Card className="space-y-2">
           <div className={`font-bold ${result.correct ? 'text-emerald-400' : 'text-rose-400'}`}>
             {result.correct
-              ? `✅ Correct! +${result.awarded} ZLN-XP${result.bonus ? ` (incl. +${result.bonus} streak)` : ''}`
-              : `❌ Incorrect${result.penalty ? ` −${result.penalty} ZLN-XP` : ''}`}
+              ? `✅ Correct +${result.awarded} XP${result.bonus ? ` (incl. +${result.bonus} streak)` : ''}`
+              : `❌ Wrong −${result.penalty ?? 10} XP`}
           </div>
           {!result.correct && result.correct_answer && (
             <div className="text-sm"><span className="text-white/50">Correct answer:</span>{' '}

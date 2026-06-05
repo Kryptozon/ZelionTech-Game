@@ -2,12 +2,19 @@ import { initData } from './telegram'
 
 const BASE = '/api'
 
+export const adminToken = {
+  get: () => { try { return localStorage.getItem('zln_admin_token') || '' } catch (_) { return '' } },
+  set: (t) => { try { localStorage.setItem('zln_admin_token', t) } catch (_) {} },
+  clear: () => { try { localStorage.removeItem('zln_admin_token') } catch (_) {} },
+}
+
 async function req(path, opts = {}) {
   const res = await fetch(BASE + path, {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
       'X-Init-Data': initData(),
+      'X-Admin-Token': adminToken.get(),     // attached only when present; verified server-side
       ...(opts.headers || {}),
     },
   })
@@ -50,7 +57,11 @@ export const api = {
 
   // admin
   adminMe: () => req('/admin/me'),
+  adminLogin: (password) => req('/admin/login', { method: 'POST', body: JSON.stringify({ password }) }),
   adminUsers: (q = '') => req('/admin/users?q=' + encodeURIComponent(q)),
+  puzzleOverview: () => req('/admin/puzzles/overview'),
+  puzzleRelease: (id) => req(`/admin/puzzles/${id}/release`, { method: 'POST' }),
+  puzzleReopen: (id) => req(`/admin/puzzles/${id}/reopen`, { method: 'POST' }),
   // admin proof dashboard
   adminProofs: (status = 'pending') => req('/admin/proofs?status=' + status),
   adminProofStats: () => req('/admin/proof-stats'),

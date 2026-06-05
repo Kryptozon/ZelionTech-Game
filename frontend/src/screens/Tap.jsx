@@ -6,15 +6,21 @@ import { hapticTap, hapticOk } from '../telegram'
 let floatId = 0
 function fmt(s) { s = Math.max(0, s | 0); return `${Math.floor(s / 60)}m ${s % 60}s` }
 
+const COOL_MSGS = ['Cooling…', 'Reactor stabilizing…', 'No rewards during cooldown…', 'Venting heat…']
+
 export default function Tap({ me, refresh, flash, go }) {
   const [st, setSt] = useState(null)
   const [floats, setFloats] = useState([])
+  const [coolMsgs, setCoolMsgs] = useState([])
   const [combo, setCombo] = useState(0)
   const [surge, setSurge] = useState(false)
   const [capModal, setCapModal] = useState(false)
+  const [recovery, setRecovery] = useState(false)
   const energy = useRef(0)
   const buffer = useRef(0)
   const flushing = useRef(false)
+  const prevOver = useRef(false)
+  const prevLevel = useRef(null)
   const wrapRef = useRef(null)
 
   const load = useCallback(async () => {
@@ -48,6 +54,8 @@ export default function Tap({ me, refresh, flash, go }) {
       setSt((s) => ({ ...s, ...r }))
       if (r.hourly_cap_reached) setCapModal(true)
       if (r.message && (r.cooldown_seconds > 0)) { setSurge(false) }
+      // Level-up refills hourly capacity (server side); celebrate it here.
+      if (r.leveled) { hapticOk(); flash('⚡ Reactor Expanded — capacity refilled!') }
       refresh()
     } catch (e) { /* keep playing */ } finally {
       flushing.current = false
@@ -58,6 +66,30 @@ export default function Tap({ me, refresh, flash, go }) {
   useEffect(() => { const t = setInterval(flush, 350); return () => clearInterval(t) }, [flush])
 
   const overheated = (st?.cooldown_seconds || 0) > 0 || (st?.overheat_percent || 0) >= 100
+
+  // Detect cooldown → recovery transition: show "REACTOR STABILIZED" then clear damage.
+  useEffect(() => {
+    if (prevOver.current && !overheated) {
+      setRecovery(true)
+      hapticOk()
+      const t = setTimeout(() => setRecovery(false), 2600)
+      prevOver.current = overheated
+      return () => clearTimeout(t)
+    }
+    prevOver.current = overheated
+  }, [overheated])
+
+  // While overheated, spawn floating cooldown messages around the reactor.
+  useEffect(() => {
+    if (!overheated) return
+    const t = setInterval(() => {
+      const id = ++floatId
+      const msg = COOL_MSGS[(Math.random() * COOL_MSGS.length) | 0]
+      setCoolMsgs((m) => [...m, { id, msg }])
+      setTimeout(() => setCoolMsgs((m) => m.filter((z) => z.id !== id)), 2200)
+    }, 900)
+    return () => clearInterval(t)
+  }, [overheated])
 
   const onTap = (e) => {
     if (!st) return
@@ -85,7 +117,10 @@ export default function Tap({ me, refresh, flash, go }) {
   const lvlInto = Math.max(0, (st.zp || 0) - (st.level_xp_floor || 0))
 
   return (
-    <div className={`space-y-4 ${surge ? 'surge-flash rounded-2xl' : ''}`}>
+    <div className={`space-y-4 rounded-2xl ${surge ? 'surge-flash' : ''} ${overheated ? 'overheat-shake' : ''} ${recovery ? 'recover-flash' : ''}`}>
+      {/* Full-screen danger atmosphere while overheated */}
+      {overheated && <div className="overheat-tint" />}
+
       <Card className="flex items-center justify-between">
         <div>
           <div className="label">Verified Energy</div>
@@ -128,32 +163,55 @@ export default function Tap({ me, refresh, flash, go }) {
       </div>
 
       {overheated && (
-        <Card className="text-center fade-in" style={{ borderColor: 'rgba(244,63,94,0.5)' }}>
-          <div className="font-extrabold text-rose-400">⚠ Reactor Overheating</div>
-          <div className="text-sm text-white/60">Cooling cycle engaged — {fmt(st.cooldown_seconds)} left.</div>
+        <Card className="text-center overheat-glow fade-in">
+          <div className="text-3xl glitch">🔥 REACTOR OVERHEATED</div>
+          <div className="text-sm font-bold text-rose-300 mt-1">Temperature Critical</div>
+          <div className="text-sm text-rose-200/80">Cooling Cycle Active</div>
+          <div className="text-[11px] uppercase tracking-widest text-white/40 mt-2">Cooling Down</div>
+          <div className="text-2xl font-black text-rose-400">{fmt(st.cooldown_seconds)}</div>
         </Card>
       )}
-      {!overheated && st.fatigue_stage > 0 && (
+      {recovery && (
+        <Card className="text-center fade-in" style={{ borderColor: 'rgba(16,185,129,0.6)' }}>
+          <div className="text-2xl">✅ REACTOR STABILIZED</div>
+          <div className="text-sm text-emerald-300 mt-1">Energy Flow Restored</div>
+        </Card>
+      )}
+      {!overheated && !recovery && st.fatigue_stage > 0 && (
         <div className="text-center text-[12px] text-amber-300">
           🔥 Reactor warming — rewards at {Math.round((st.fatigue_multiplier || 1) * 100)}%. Slow down to cool.
         </div>
       )}
 
       {/* Reactor button */}
-      <div ref={wrapRef} className="relative mx-auto" style={{ width: 280, height: 280 }}>
-        <div className="energy-aura" />
+      <div ref={wrapRef} className={`relative mx-auto ${overheated ? 'glitch' : ''}`} style={{ width: 280, height: 280 }}>
+        <div className="energy-aura" style={overheated ? { filter: 'blur(7px) hue-rotate(-40deg) saturate(2)' } : undefined} />
         <div className="energy-aura-2" />
         <div className="reactor-ring reactor-pulse" />
         <button onPointerDown={onTap}
-          className="reactor-core absolute inset-6 rounded-full flex items-center justify-center"
-          style={{ background: 'radial-gradient(circle at 50% 35%, #1b1b27, #0b0b12 70%)',
-                   border: '2px solid rgba(245,197,66,0.5)', opacity: overheated ? 0.6 : 1 }}>
-          <span className="logo-glow"><Logo size={150} /></span>
+          className={`reactor-core absolute inset-6 rounded-full flex items-center justify-center ${overheated ? 'overheat-glow' : ''}`}
+          style={{ background: overheated
+                     ? 'radial-gradient(circle at 50% 35%, #2a0d12, #120406 70%)'
+                     : 'radial-gradient(circle at 50% 35%, #1b1b27, #0b0b12 70%)',
+                   border: overheated ? '2px solid rgba(244,63,94,0.8)' : '2px solid rgba(245,197,66,0.5)',
+                   opacity: overheated ? 0.85 : 1 }}>
+          <span className={overheated ? 'logo-glow glitch' : 'logo-glow'}><Logo size={150} /></span>
           <span className="tap-wave" key={combo} />
+          {/* Overheat-only damage: cracked glass, sparks, smoke */}
+          {overheated && <span className="cracked-glass" />}
+          {overheated && <>
+            <span className="spark" style={{ left: '32%', top: '28%' }} />
+            <span className="spark" style={{ left: '62%', top: '40%', animationDelay: '.2s' }} />
+            <span className="spark" style={{ left: '48%', top: '20%', animationDelay: '.35s' }} />
+            <span className="smoke" style={{ left: '38%' }} />
+            <span className="smoke" style={{ left: '56%', animationDelay: '.7s' }} />
+          </>}
         </button>
         {floats.map((f) => (
           <span key={f.id} className="float-zp" style={{ left: f.x, top: f.y }}>{f.v > 0 ? `+${f.v}` : '0'}</span>
         ))}
+        {/* Floating cooldown messages */}
+        {coolMsgs.map((m) => <span key={m.id} className="float-msg">{m.msg}</span>)}
       </div>
 
       <Card>

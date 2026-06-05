@@ -16,10 +16,12 @@ def _today():
     return dt.date.today()
 
 
-def _released_hints(row):
+def _released_hint_count(row):
+    """How many hints the admin has announced. We NEVER send hint TEXT to users —
+    real hints live only on YouTube/TikTok; the app only announces a release count."""
     n = row.get("released_hints", 0) if isinstance(row, dict) else (row["released_hints"] or 0)
     hints = [row["hint1"], row["hint2"], row["hint3"]]
-    return [h for h in hints[:n] if h]
+    return sum(1 for h in hints[:n] if h)
 
 
 def _public(row, solved=False):
@@ -31,8 +33,8 @@ def _public(row, solved=False):
         "youtube_instruction": row["youtube_instruction"],
         "telegram_instruction": row["telegram_instruction"],
         "solved": solved, "closed": closed,
-        # Admin may "release" hints; only released ones are revealed to players.
-        "released_hints": _released_hints(row),
+        # Only the COUNT of admin-announced hints — never the hint text itself.
+        "released_hints": _released_hint_count(row),
         "youtube_posted": bool(row["youtube_posted"]) if "youtube_posted" in row else False,
         "telegram_posted": bool(row["telegram_posted"]) if "telegram_posted" in row else False,
     }
@@ -41,35 +43,37 @@ def _public(row, solved=False):
     return d  # NOTE: answer / unreleased hints / scripts are never included
 
 
-async def _pick_daily(con, difficulties=("easy", "medium", "hard"), table_date=None):
-    d = table_date or _today()
-    existing = await con.fetchval("SELECT puzzle_id FROM daily_puzzle_sessions WHERE session_date=$1", d)
-    if existing:
-        return existing
-    ids = [r["id"] for r in await con.fetch(
-        "SELECT id FROM puzzles WHERE active=true AND difficulty = ANY($1::text[]) ORDER BY id",
-        list(difficulties))]
-    if not ids:
-        return None
-    idx = int(d.strftime("%Y%m%d")) % len(ids)
-    pid = ids[idx]
-    await con.execute(
-        "INSERT INTO daily_puzzle_sessions(session_date, puzzle_id) VALUES($1,$2) "
-        "ON CONFLICT (session_date) DO NOTHING", d, pid)
-    return pid
+async def get_setting(pool, key, default=None):
+    async with pool.acquire() as con:
+        v = await con.fetchval("SELECT value FROM game_settings WHERE key=$1", key)
+    return v if v is not None else default
+
+
+async def set_setting(pool, key, value):
+    async with pool.acquire() as con:
+        await con.execute(
+            "INSERT INTO game_settings(key,value) VALUES($1,$2) "
+            "ON CONFLICT (key) DO UPDATE SET value=$2", key, str(value))
 
 
 async def daily(pool, redis, user_id):
+    """Shows ONLY the puzzle an admin has manually released (the active pointer).
+    Never auto-releases. One active puzzle at a time."""
+    pid = await get_setting(pool, "active_puzzle")
+    if not pid:
+        return {"waiting": True, "message": "Waiting for admin to release the next puzzle."}
+    pid = int(pid)
     async with pool.acquire() as con:
-        pid = await _pick_daily(con)
-        if not pid:
-            return {"empty": True}
         row = await con.fetchrow("SELECT * FROM puzzles WHERE id=$1", pid)
+        if not row:
+            return {"waiting": True, "message": "Waiting for admin to release the next puzzle."}
         solved = await con.fetchval(
             "SELECT 1 FROM puzzle_attempts WHERE user_id=$1 AND puzzle_id=$2 AND correct", user_id, pid)
+    if row["status"] == "skipped":
+        return {"missed": True, "message": "❌ Puzzle Missed — this puzzle is no longer available."}
     cd = await redis.ttl(f"pzcd:{user_id}:{pid}")
     wrong = int(await redis.get(f"pzwrong:{user_id}:{pid}") or 0)
-    out = _public(row, solved=bool(solved))
+    out = _public(row, solved=bool(solved))   # _public marks 'closed' for closed/skipped status
     out["attempts_remaining"] = max(0, MAX_WRONG - wrong)
     out["cooldown_seconds"] = cd if cd and cd > 0 else 0
     return out
@@ -96,10 +100,14 @@ async def weekly(pool, redis, user_id):
 
 
 async def answer(pool, redis, user_id, puzzle_id, text):
+    # Only the currently-released active puzzle can be answered.
+    active = await get_setting(pool, "active_puzzle")
+    if not active or int(active) != int(puzzle_id):
+        return {"error": "not_active"}
     async with pool.acquire() as con:
-        row = await con.fetchrow("SELECT * FROM puzzles WHERE id=$1 AND active=true", puzzle_id)
-        if not row:
-            return {"error": "not_found"}
+        row = await con.fetchrow("SELECT * FROM puzzles WHERE id=$1", puzzle_id)
+        if not row or row["status"] in ("closed", "skipped"):
+            return {"error": "closed"}
         solved = await con.fetchval(
             "SELECT 1 FROM puzzle_attempts WHERE user_id=$1 AND puzzle_id=$2 AND correct", user_id, puzzle_id)
         if solved:
@@ -184,11 +192,34 @@ async def set_active(pool, puzzle_id, active):
 
 
 async def set_status(pool, puzzle_id, status):
-    """status: active | closed | skipped. Closed/skipped puzzles are permanently removed
-    from rotation (scarcity — no retroactive rewards)."""
+    """status: active | closed | skipped. Keeps the active pointer so users see the
+    Closed/Missed state until a new puzzle is released."""
     active = (status == "active")
     async with pool.acquire() as con:
         await con.execute("UPDATE puzzles SET status=$1, active=$2 WHERE id=$3", status, active, puzzle_id)
+
+
+async def release_puzzle(pool, puzzle_id):
+    """Manually make THIS puzzle the single live puzzle (admin only)."""
+    async with pool.acquire() as con:
+        # demote any previously-active puzzle so only one is live at a time
+        await con.execute("UPDATE puzzles SET active=false WHERE status='active' AND id<>$1", puzzle_id)
+        await con.execute("UPDATE puzzles SET status='active', active=true WHERE id=$1", puzzle_id)
+    await set_setting(pool, "active_puzzle", puzzle_id)
+
+
+async def admin_overview(pool):
+    async with pool.acquire() as con:
+        active = await con.fetchval("SELECT value FROM game_settings WHERE key='active_puzzle'")
+        by_status = {r["status"]: r["c"] for r in await con.fetch(
+            "SELECT status, count(*) c FROM puzzles GROUP BY status")}
+        solved = await con.fetchval("SELECT count(*) FROM puzzle_attempts WHERE correct") or 0
+        attempts = await con.fetchval("SELECT count(*) FROM puzzle_attempts") or 0
+        active_title = None
+        if active:
+            active_title = await con.fetchval("SELECT title FROM puzzles WHERE id=$1", int(active))
+    return {"active_puzzle": int(active) if active else None, "active_title": active_title,
+            "by_status": by_status, "solved": solved, "missed": max(0, attempts - solved)}
 
 
 async def release_hint(pool, puzzle_id, n):

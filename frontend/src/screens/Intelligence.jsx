@@ -6,6 +6,7 @@ import { tg, hapticOk, hapticErr } from '../telegram'
 const GROUP_URL = 'https://t.me/zelionglobal'
 const CHANNEL_URL = 'https://t.me/zeliontechofficial'
 const YT_URL = 'https://www.youtube.com/@ZelionTech'
+const TT_URL = 'https://www.tiktok.com/@zeliontech_zev'
 const DIFF_TONE = { easy: 'green', medium: 'gold', hard: 'blue', legendary: 'red' }
 
 function fmt(s) { s = Math.max(0, s | 0); return `${Math.floor(s / 60)}m ${s % 60}s` }
@@ -46,6 +47,25 @@ export default function Intelligence({ refresh, flash }) {
       </Card>
     </Wrap>
   )
+  // Manual release: nothing is live until the admin releases the next puzzle.
+  if (puzzle?.waiting) return (
+    <Wrap mode={mode} setMode={setMode}>
+      <Card className="text-center py-8"><div className="text-4xl">⏳</div>
+        <div className="font-bold mt-2">No Active Puzzle</div>
+        <div className="text-sm text-white/50 mt-1">{puzzle.message || 'Waiting for admin to release the next puzzle.'}</div>
+      </Card>
+    </Wrap>
+  )
+  // A skipped puzzle stays permanently missed.
+  if (puzzle?.missed) return (
+    <Wrap mode={mode} setMode={setMode}>
+      <Card className="text-center py-8" style={{ borderColor: 'rgba(244,63,94,0.5)' }}>
+        <div className="text-4xl">❌</div>
+        <div className="font-extrabold text-rose-400 mt-2">Puzzle Missed</div>
+        <div className="text-sm text-white/50 mt-1">{puzzle.message || 'This puzzle is no longer available.'}</div>
+      </Card>
+    </Wrap>
+  )
 
   const submit = async () => {
     if (!val.trim()) return flash('Enter your answer', 'red')
@@ -73,22 +93,21 @@ export default function Intelligence({ refresh, flash }) {
         <div className="text-sm whitespace-pre-line text-white/80">{puzzle.question}</div>
       </Card>
 
-      {/* Where to find clues — never the answer */}
+      {/* Hints are NEVER shown in-game. Real hints live ONLY on YouTube & TikTok;
+          everywhere else we only announce that a new hint was released. */}
       <Card>
         <div className="label">🔎 Need a hint?</div>
-        <div className="text-[12px] text-white/60 mt-1">{puzzle.youtube_instruction}</div>
-        <div className="text-[12px] text-white/60">{puzzle.telegram_instruction}</div>
-        {/* Admin-released hints only (servers never leak unreleased hints/answers) */}
-        {puzzle.released_hints?.length > 0 && (
-          <div className="mt-2 space-y-1">
-            {puzzle.released_hints.map((h, i) => (
-              <div key={i} className="text-[12px] text-gold">💡 Hint {i + 1}: {h}</div>
-            ))}
+        <div className="text-[12px] text-white/60 mt-1">
+          Actual hints are revealed only on our <b>YouTube</b> and <b>TikTok</b>. Other channels just announce drops.
+        </div>
+        {puzzle.released_hints > 0 && (
+          <div className="mt-2 text-[12px] text-gold">
+            🔔 {puzzle.released_hints} new hint{puzzle.released_hints > 1 ? 's' : ''} released — watch YouTube / TikTok to decode.
           </div>
         )}
         <div className="grid grid-cols-2 gap-2 mt-2">
           <Btn onClick={() => openLink(YT_URL)}>📺 YouTube {puzzle.youtube_posted ? '🟢' : ''}</Btn>
-          <Btn onClick={() => openLink(CHANNEL_URL)}>📢 Telegram {puzzle.telegram_posted ? '🟢' : ''}</Btn>
+          <Btn onClick={() => openLink(TT_URL)}>🎵 TikTok</Btn>
         </div>
       </Card>
 

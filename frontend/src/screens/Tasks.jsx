@@ -93,8 +93,8 @@ export default function Tasks({ refresh, flash, go }) {
         <div onClick={() => setUnlock(null)}
           className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6 fade-in">
           <div onClick={(e) => e.stopPropagation()} className="card max-w-sm w-full text-center glow">
-            <div className="text-4xl">⚡</div>
-            <div className="font-extrabold text-gold text-lg mt-1">New task unlocked!</div>
+            <div className="text-4xl">🎉</div>
+            <div className="font-extrabold text-gold text-lg mt-1">New Task Unlocked</div>
             <div className="text-sm text-white/70 mt-2">{unlock.title}</div>
             <div className="text-[12px] text-white/45 mt-1">Reward +{unlock.reward} ZLN-XP</div>
             <Btn gold className="w-full mt-4" onClick={() => setUnlock(null)}>Let's go</Btn>

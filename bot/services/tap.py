@@ -41,10 +41,17 @@ def _now():
 
 
 def hourly_cap(level: int) -> int:
-    """Rewarded taps allowed per 1 hour (level-scaled, capped — no daily reset)."""
+    """Rewarded taps allowed per 1 hour (level-scaled, capped — no daily reset).
+    Anchors: L1=500, L5=1000, L10=2000, L20=5000, then +200/level."""
+    if level <= 1:
+        return 500
     if level <= 5:
-        return HOURLY_CAP.get(level, 300)
-    return 1800 + (level - 5) * 200           # slow, not infinite
+        return 500 + (level - 1) * 125        # L5 = 1000
+    if level <= 10:
+        return 1000 + (level - 5) * 200       # L10 = 2000
+    if level <= 20:
+        return 2000 + (level - 10) * 300      # L20 = 5000
+    return 5000 + (level - 20) * 200
 
 
 def level_max_energy(level: int, base_max: int) -> int:
@@ -265,12 +272,14 @@ async def tap(pool, redis, user_id, taps, nonce):
         await con.execute("INSERT INTO tap_events(user_id, taps, zp, combo, nonce) VALUES($1,$2,$3,$4,$5)",
                           user_id, rewarded, zp, combo, nonce)
 
+    leveled = False
     if zp > 0:
-        await economy.award_points(pool, user_id, zp, "tap", f"tap:{nonce}", redis=redis)
+        aw = await economy.award_points(pool, user_id, zp, "tap", f"tap:{nonce}", redis=redis)
+        leveled = aw.get("leveled", False)
 
     out = await get_state(pool, redis, user_id)
     return {**out, "awarded_points": zp, "valid_taps": rewarded, "earned": zp,
-            "combo": combo, "fatigue_multiplier": fatigue_mult,
+            "combo": combo, "fatigue_multiplier": fatigue_mult, "leveled": leveled,
             "weekly_capped": weekly_capped,
             "message": "Weekly tap reward cap reached — earn ZLN-XP via quizzes, puzzles & missions."
                        if weekly_capped else None}

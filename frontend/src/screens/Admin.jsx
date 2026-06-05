@@ -1,26 +1,37 @@
 import React, { useEffect, useState } from 'react'
-import { api } from '../api'
+import { api, adminToken } from '../api'
 import { Card, Btn, Chip, Spinner, Logo } from '../ui'
 
-export default function Admin({ me, flash }) {
-  // Hard client gate (server also enforces). me.is_admin is set only for ADMIN_IDS.
-  if (!me?.is_admin) {
+export default function Admin({ me, admin, flash }) {
+  // The Admin tab is visible to ALL users, but access is gated server-side.
+  // admin = /api/admin/me => { is_admin, id, authed }
+  const [authed, setAuthed] = useState(!!admin?.authed)
+  const [tab, setTab] = useState('puzzles')
+
+  // 1) Not the super-admin Telegram ID -> hard "Restricted Area" (server returns 403 too).
+  if (!admin?.is_admin) {
     return (
-      <Card className="text-center">
-        <Logo size={56} />
-        <div className="font-extrabold mt-3 text-rose-400">Unauthorized</div>
-        <div className="text-sm text-white/50">This area is restricted to the ZelionTech admin.</div>
+      <Card className="text-center py-10">
+        <div className="text-5xl">🔒</div>
+        <div className="font-extrabold mt-3 text-rose-400 text-lg">Restricted Area</div>
+        <div className="text-sm text-white/50 mt-1">You do not have permission to access this dashboard.</div>
       </Card>
     )
   }
 
-  const [tab, setTab] = useState('proofs')
+  // 2) Correct Telegram ID but no valid password token yet -> password prompt.
+  if (!authed) return <PasswordGate onPass={() => setAuthed(true)} flash={flash} />
+
   return (
     <div className="space-y-4">
       <Counters />
-      <div className="text-[10px] text-emerald-400/80">🛡 Admin mode active — ID {me?.id || 1087968824}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] text-emerald-400/80">🛡 Admin mode active — ID {admin?.id || 8883747941}</div>
+        <button className="text-[10px] text-white/40 underline"
+          onClick={() => { adminToken.clear(); setAuthed(false); flash('Locked 🔒') }}>Lock</button>
+      </div>
       <div className="flex gap-2 flex-wrap">
-        {[['proofs', 'Proofs'], ['questions', 'Quiz'], ['puzzles', 'Puzzles'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
+        {[['puzzles', 'Puzzles'], ['proofs', 'Missions'], ['questions', 'Quiz'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 btn ${tab === id ? 'btn-gold' : 'btn-ghost'}`}>{l}</button>
         ))}
@@ -31,6 +42,36 @@ export default function Admin({ me, flash }) {
       {tab === 'users' && <Users flash={flash} />}
       {tab === 'kb' && <KB flash={flash} />}
     </div>
+  )
+}
+
+function PasswordGate({ onPass, flash }) {
+  const [pw, setPw] = useState('')
+  const [busy, setBusy] = useState(false)
+  const submit = async () => {
+    if (!pw) return
+    setBusy(true)
+    try {
+      const r = await api.adminLogin(pw)   // server verifies hash + Telegram ID
+      adminToken.set(r.token)
+      flash('Access granted ✅')
+      onPass()
+    } catch (e) {
+      flash(e.message === 'wrong_password' ? 'Wrong password' : e.message, 'red')
+    } finally { setBusy(false) }
+  }
+  return (
+    <Card className="text-center py-8">
+      <div className="text-4xl">🛡</div>
+      <div className="font-extrabold mt-2">Admin Authentication</div>
+      <div className="text-xs text-white/50 mt-1">Enter the admin password to unlock the dashboard.</div>
+      <input type="password" value={pw} autoFocus
+        onChange={(e) => setPw(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && submit()}
+        placeholder="Password"
+        className="w-full mt-4 bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none text-center" />
+      <Btn gold className="w-full mt-3" disabled={busy} onClick={submit}>{busy ? 'Verifying…' : 'Unlock'}</Btn>
+    </Card>
   )
 }
 
@@ -72,9 +113,14 @@ function copy(text, flash) {
 
 function Puzzles({ flash }) {
   const [rows, setRows] = useState(null)
+  const [ov, setOv] = useState(null)
   const [diff, setDiff] = useState('')
   const [open, setOpen] = useState(null)
-  const load = () => api.adminPuzzles(diff).then((d) => setRows(d.puzzles)).catch((e) => flash(e.message, 'red'))
+  const [reveal, setReveal] = useState({})   // per-puzzle: show answer/scripts inline
+  const load = () => {
+    api.adminPuzzles(diff).then((d) => setRows(d.puzzles)).catch((e) => flash(e.message, 'red'))
+    api.puzzleOverview().then(setOv).catch(() => {})
+  }
   useEffect(() => { load() }, [diff])
 
   const act = async (fn, ok) => { try { await fn(); flash(ok); load() } catch (e) { flash(e.message, 'red') } }
@@ -83,51 +129,93 @@ function Puzzles({ flash }) {
   if (!rows) return <Spinner />
   return (
     <div className="space-y-3">
+      {/* Manual-release overview — only ONE puzzle is ever live; admins release it here. */}
+      {ov && (
+        <Card>
+          <div className="text-sm font-bold">🧩 Puzzle Control</div>
+          <div className="text-[11px] text-white/60 mt-1">
+            {ov.active_puzzle
+              ? <>Live now: <span className="text-emerald-400 font-semibold">#{ov.active_puzzle} {ov.active_title}</span></>
+              : <span className="text-amber-400">No puzzle live — waiting for admin to release the next one.</span>}
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2 text-[10px] text-white/50">
+            {Object.entries(ov.by_status || {}).map(([s, c]) => <Chip key={s} tone={statusTone[s] || 'gray'}>{s}: {c}</Chip>)}
+            <Chip tone="green">solved: {ov.solved}</Chip>
+            <Chip tone="gray">missed: {ov.missed}</Chip>
+          </div>
+        </Card>
+      )}
+
       <select value={diff} onChange={(e) => setDiff(e.target.value)}
         className="w-full bg-black/40 border border-gold/20 rounded-xl px-2 py-2 text-sm">
         <option value="">All difficulties</option>
         {['easy', 'medium', 'hard', 'legendary'].map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
-      <div className="text-[11px] text-white/40">{rows.length} puzzles · admin-only (answers/hints never sent to users)</div>
-      {rows.slice(0, 80).map((p) => (
+      <div className="text-[11px] text-white/40">Puzzles NEVER auto-release. Answers/hints never sent to users.</div>
+      {rows.slice(0, 80).map((p) => {
+        const isLive = ov?.active_puzzle === p.id
+        const rv = reveal[p.id]
+        return (
         <Card key={p.id}>
           <div className="flex items-center gap-2">
             <Chip tone="gray">{p.difficulty}</Chip>
             <Chip tone={statusTone[p.status] || 'gray'}>{p.status}</Chip>
+            {isLive && <Chip tone="green">LIVE</Chip>}
             <div className="flex-1 text-sm font-semibold truncate">#{p.id} {p.title}</div>
             <Chip tone="green">+{p.reward}</Chip>
           </div>
           <div className="text-[11px] text-white/45 mt-1">{p.category} · {p.source_topic}</div>
-          <div className="text-xs text-gold mt-1">🔑 {p.answer}
-            {p.accepted_variations && <span className="text-white/40"> · also: {p.accepted_variations}</span>}</div>
           <div className="text-[11px] text-white/50 mt-1">Released hints: {p.released_hints}/3 ·
             YT {p.youtube_posted ? '✅' : '⬜'} · TG {p.telegram_posted ? '✅' : '⬜'}</div>
+
+          {/* Manual release / lifecycle controls */}
           <div className="flex gap-2 mt-2">
-            {p.status === 'active'
+            {isLive
               ? <Btn className="flex-1" onClick={() => act(() => api.puzzleClose(p.id), 'Closed')}>Close</Btn>
-              : <Btn gold className="flex-1" onClick={() => act(() => api.puzzleActivate(p.id), 'Activated')}>Release</Btn>}
+              : <Btn gold className="flex-1" onClick={() => act(() => api.puzzleRelease(p.id), 'Released ✅')}>Release</Btn>}
             <Btn className="flex-1 !bg-rose-600/70" onClick={() => act(() => api.puzzleSkip(p.id), 'Skipped')}>Skip</Btn>
+            {p.status === 'skipped' || p.status === 'closed'
+              ? <Btn className="flex-1" onClick={() => act(() => api.puzzleReopen(p.id), 'Reopened')}>Reopen</Btn>
+              : null}
             <Btn className="flex-1" onClick={() => setOpen(open === p.id ? null : p.id)}>{open === p.id ? '▲' : 'More'}</Btn>
           </div>
+
           {open === p.id && (
             <div className="mt-2 border-t border-white/10 pt-2 space-y-2">
               <div className="text-[11px] text-white/60">Q: {p.question}</div>
-              <div className="text-[11px] text-white/60">Explain: {p.explanation}</div>
+
+              {/* Answers/walkthrough/scripts live in the dashboard — reveal instantly, no JSON hunting. */}
+              <Btn gold className="w-full" onClick={() => setReveal({ ...reveal, [p.id]: !rv })}>
+                {rv ? '🙈 Hide answer & scripts' : '👁 View answer / walkthrough / scripts'}
+              </Btn>
+              {rv && (
+                <div className="space-y-1 text-[11px]">
+                  <div className="text-gold">🔑 Answer: {p.answer}
+                    {p.accepted_variations && <span className="text-white/40"> · also: {p.accepted_variations}</span>}</div>
+                  {[['Hint 1', p.hint1], ['Hint 2', p.hint2], ['Hint 3', p.hint3]].map(([l, v]) => v && (
+                    <div key={l} className="text-white/60">{l}: {v}</div>
+                  ))}
+                  {p.explanation && <div className="text-white/60">📘 Explanation: {p.explanation}</div>}
+                  {p.walkthrough && p.walkthrough !== p.explanation && <div className="text-white/60">🧭 Walkthrough: {p.walkthrough}</div>}
+                  <div className="grid grid-cols-2 gap-1 pt-1">
+                    <Btn onClick={() => copy(p.answer, flash)}>Copy Answer</Btn>
+                    <Btn onClick={() => copy(p.walkthrough || p.explanation, flash)}>Copy Walkthrough</Btn>
+                    <Btn onClick={async () => { try { const s = await api.puzzleScript(p.id); copy(s.youtube_script, flash) } catch (e) { flash(e.message, 'red') } }}>Copy YouTube Script</Btn>
+                    <Btn onClick={async () => { try { const s = await api.puzzleScript(p.id); copy(s.tiktok_script || s.youtube_script, flash) } catch (e) { flash(e.message, 'red') } }}>Copy TikTok Script</Btn>
+                    <Btn onClick={async () => { try { const s = await api.puzzleTelegram(p.id); copy(s.telegram_post, flash) } catch (e) { flash(e.message, 'red') } }}>Copy TG Post</Btn>
+                  </div>
+                </div>
+              )}
+
+              {/* Hints are only announced in-game; real hints live on YouTube/TikTok. */}
+              <div className="text-[10px] text-white/40">Announce a hint release (no hint text shown in-app):</div>
               <div className="grid grid-cols-3 gap-1">
                 {[1, 2, 3].map((n) => (
                   <Btn key={n} gold={p.released_hints >= n}
-                    onClick={() => act(() => api.puzzleReleaseHint(p.id, n), `Hint ${n} released`)}>
-                    Release H{n}
+                    onClick={() => act(() => api.puzzleReleaseHint(p.id, n), `Hint ${n} announced`)}>
+                    Announce H{n}
                   </Btn>
                 ))}
-              </div>
-              <div className="grid grid-cols-2 gap-1">
-                <Btn onClick={() => copy(p.answer, flash)}>Copy Answer</Btn>
-                <Btn onClick={() => copy(p.hint1, flash)}>Copy Hint1</Btn>
-                <Btn onClick={() => copy(p.hint2, flash)}>Copy Hint2</Btn>
-                <Btn onClick={() => copy(p.hint3, flash)}>Copy Hint3</Btn>
-                <Btn onClick={async () => { try { const s = await api.puzzleScript(p.id); copy(s.youtube_script, flash) } catch (e) { flash(e.message, 'red') } }}>Copy Video Script</Btn>
-                <Btn onClick={async () => { try { const s = await api.puzzleTelegram(p.id); copy(s.telegram_post, flash) } catch (e) { flash(e.message, 'red') } }}>Copy TG Post</Btn>
               </div>
               <div className="grid grid-cols-2 gap-1">
                 <Btn gold={p.youtube_posted} onClick={() => act(() => api.puzzleMarkPosted(p.id, 'youtube'), 'Marked YT')}>Mark YT Posted</Btn>
@@ -136,7 +224,7 @@ function Puzzles({ flash }) {
             </div>
           )}
         </Card>
-      ))}
+      )})}
     </div>
   )
 }

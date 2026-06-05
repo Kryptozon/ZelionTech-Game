@@ -1,4 +1,6 @@
 import os
+import hashlib
+import hmac
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -12,6 +14,9 @@ class Settings:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     BOT_USERNAME = os.getenv("BOT_USERNAME", "ZelionReactorBot")
     ADMIN_IDS = _ints(os.getenv("ADMIN_IDS", ""))
+    # Super-admin password — stored only as a hash, verified server-side.
+    ADMIN_PASSWORD_HASH = (os.getenv("ADMIN_PASSWORD_HASH")
+                           or hashlib.sha256(os.getenv("ADMIN_PASSWORD", "ZelioNK76131393@13").encode()).hexdigest())
 
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://zelion:zelion@db:5432/zelion")
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -56,7 +61,7 @@ class Settings:
     GROUP_CHAT_ID = int(os.getenv("GROUP_CHAT_ID", "0") or 0)  # 0 = accept any group
     GROUP_MSG_XP = int(os.getenv("GROUP_MSG_XP", "1"))          # +1 ZLN-XP per valid message
     GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "20"))
-    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "10"))
+    GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "20"))
     GROUP_FLOOD_SEC = int(os.getenv("GROUP_FLOOD_SEC", "60"))   # 1 rewarded msg / 60s
     GROUP_REPLY_XP = int(os.getenv("GROUP_REPLY_XP", "2"))
     GROUP_DISCUSSION_XP = int(os.getenv("GROUP_DISCUSSION_XP", "5"))
@@ -85,6 +90,10 @@ class Settings:
 
     def is_admin(self, user_id: int) -> bool:
         return user_id in self.ADMIN_IDS
+
+    def check_admin_password(self, password: str) -> bool:
+        return hmac.compare_digest(
+            hashlib.sha256((password or "").encode()).hexdigest(), self.ADMIN_PASSWORD_HASH)
 
     def validate_static(self):
         """Fail fast on misconfiguration before any network/IO."""

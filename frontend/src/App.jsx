@@ -17,8 +17,7 @@ const TABS = [
   { id: 'quiz', label: 'Quiz', icon: '🧠' },
   { id: 'intel', label: 'Intel', icon: '🧩' },
   { id: 'community', label: 'Group', icon: '💬' },
-  { id: 'ranks', label: 'Ranks', icon: '🏆' },
-  { id: 'profile', label: 'You', icon: '👤' },
+  { id: 'admin', label: 'Admin', icon: '🛡' },   // visible to all; gated inside
 ]
 
 export default function App() {
@@ -59,15 +58,11 @@ export default function App() {
           <div className="font-extrabold leading-tight">ZELION <span className="text-gold">REACTOR</span></div>
           <div className="text-[11px] text-white/40">Operator @{me.username || me.first_name}</div>
         </div>
-        {/* Admin shield — visible only when the server confirms this user is admin. */}
-        {isAdmin && (
-          <button onClick={() => setTab('admin')} title="Admin Dashboard"
-            className={`text-2xl ${tab === 'admin' ? 'text-gold' : 'text-white/70'}`}>🛡</button>
-        )}
-        <div className="text-right">
+        {/* Tap to open Profile (Profile holds the Ranks/Leaderboard link). */}
+        <button onClick={() => setTab('profile')} className="text-right">
           <div className="label">Quiz rank</div>
-          <div className="text-xs font-bold text-gold">{me.quiz_rank}</div>
-        </div>
+          <div className="text-xs font-bold text-gold">{me.quiz_rank} 👤</div>
+        </button>
       </header>
 
       {isAdmin && (
@@ -86,9 +81,7 @@ export default function App() {
         {tab === 'community' && <Community refresh={refresh} flash={flash} />}
         {tab === 'ranks' && <Leaderboard />}
         {tab === 'profile' && <Profile isAdmin={isAdmin} go={setTab} />}
-        {tab === 'admin' && (isAdmin
-          ? <Admin me={{ ...me, is_admin: true }} flash={flash} />
-          : <Center><p className="text-rose-400 font-bold">Unauthorized</p></Center>)}
+        {tab === 'admin' && <Admin me={me} admin={admin} flash={flash} />}
       </main>
 
       <nav className="app-nav">

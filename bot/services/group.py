@@ -23,7 +23,7 @@ def _meaningful(text: str) -> bool:
     if letters < 6:                        # filters emoji-only / symbol spam
         return False
     words = [w for w in re.findall(r"[a-zA-Z0-9']+", t.lower()) if len(w) > 1]
-    if len(set(words)) < 2:                # filters repeated single word / "ok ok ok"
+    if len(set(words)) < 3:                # min 3 distinct words; filters repeated/short spam
         return False
     return True
 

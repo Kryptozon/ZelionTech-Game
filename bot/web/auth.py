@@ -7,6 +7,28 @@ from urllib.parse import parse_qsl
 
 from ..config import settings
 
+ADMIN_TOKEN_TTL = 12 * 3600
+
+
+def make_admin_token(user_id: int) -> str:
+    """Signed admin session token (issued only after password check)."""
+    exp = int(time.time()) + ADMIN_TOKEN_TTL
+    msg = f"admin:{user_id}:{exp}"
+    sig = hmac.new(settings.BOT_TOKEN.encode(), msg.encode(), hashlib.sha256).hexdigest()[:32]
+    return f"{user_id}.{exp}.{sig}"
+
+
+def verify_admin_token(token: str, user_id: int) -> bool:
+    try:
+        uid, exp, sig = token.split(".")
+        if int(uid) != int(user_id) or int(exp) < time.time():
+            return False
+        msg = f"admin:{uid}:{exp}"
+        good = hmac.new(settings.BOT_TOKEN.encode(), msg.encode(), hashlib.sha256).hexdigest()[:32]
+        return hmac.compare_digest(good, sig)
+    except Exception:
+        return False
+
 
 def validate_init_data(init_data: str, max_age: int | None = None):
     """Return the parsed Telegram user dict if initData is authentic & fresh, else None.

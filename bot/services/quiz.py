@@ -20,10 +20,10 @@ WRONG_COOLDOWN_SEC = 0          # daily model: no per-wrong cooldown, just no re
 DAILY_SIZE = 5
 SESSION_HOURS = 24
 
-# ZLN-XP by difficulty tier (req): beginner=5, intermediate=10, advanced=20, expert=35
-XP_BY_DIFF = {1: 5, 2: 10, 3: 20, 4: 35, 5: 35}
+# Flat reward/penalty per spec: correct +20 XP, wrong -10 XP.
+XP_BY_DIFF = {1: 20, 2: 20, 3: 20, 4: 20, 5: 20}
 STREAK_BONUS = {5: 10, 10: 25, 25: 100}        # 5/10/25 correct in a row
-WRONG_PENALTY = 1                               # -1 ZLN-XP per wrong (never below 0)
+WRONG_PENALTY = 10                              # -10 ZLN-XP per wrong (never below 0)
 WRONG_STREAK_LIMIT = 5                          # 5 wrong in a row -> training required
 TRAINING_COOLDOWN_SEC = 300
 
