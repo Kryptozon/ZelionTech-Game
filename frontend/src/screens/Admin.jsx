@@ -22,7 +22,7 @@ export default function Admin({ me, admin, flash }) {
           onClick={() => { adminToken.clear(); setAuthed(false); flash('Locked 🔒') }}>Lock</button>
       </div>
       <div className="flex gap-2 flex-wrap">
-        {[['puzzles', 'Puzzles'], ['proofs', 'Missions'], ['questions', 'Quiz'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
+        {[['puzzles', 'Puzzles'], ['ranks', 'Ranks'], ['proofs', 'Missions'], ['questions', 'Quiz'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 btn ${tab === id ? 'btn-gold' : 'btn-ghost'}`}>{l}</button>
         ))}
@@ -30,6 +30,7 @@ export default function Admin({ me, admin, flash }) {
       {tab === 'proofs' && <Proofs flash={flash} />}
       {tab === 'questions' && <Questions flash={flash} />}
       {tab === 'puzzles' && <Puzzles flash={flash} />}
+      {tab === 'ranks' && <RanksAdmin flash={flash} />}
       {tab === 'users' && <Users flash={flash} />}
       {tab === 'kb' && <KB flash={flash} />}
     </div>
@@ -68,6 +69,42 @@ function AdminLogin({ id, onPass, flash }) {
   )
 }
 
+function UserRow({ u, flash, reload }) {
+  const [delta, setDelta] = useState('')
+  const adjust = async (sign) => {
+    const n = parseInt(delta, 10)
+    if (!n || n <= 0) return flash('Enter a positive amount', 'red')
+    try { const r = await api.adminUserXp(u.id, sign * n); flash(`XP set → ${r.points.toLocaleString()}`); setDelta(''); reload && reload() }
+    catch (e) { flash(e.message, 'red') }
+  }
+  const ban = async () => {
+    const willBan = u.status !== 'banned'
+    try { await api.adminUserBan(u.id, willBan); flash(willBan ? 'User banned 🚫' : 'User unbanned ✅'); reload && reload() }
+    catch (e) { flash(e.message, 'red') }
+  }
+  return (
+    <Card>
+      <div className="flex items-center justify-between">
+        <div className="font-bold">@{u.username || u.first_name || u.id}</div>
+        <Chip tone={u.status === 'banned' ? 'red' : (u.shadow_banned ? 'gray' : 'green')}>
+          {u.status === 'banned' ? 'banned' : (u.shadow_banned ? 'shadow' : 'active')}
+        </Chip>
+      </div>
+      <div className="text-[11px] text-white/50 mt-1">
+        ID {u.id} · {u.rank_name || ''} Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP
+      </div>
+      <div className="flex gap-2 mt-2">
+        <input value={delta} onChange={(e) => setDelta(e.target.value.replace(/[^0-9]/g, ''))}
+          placeholder="XP amount" inputMode="numeric"
+          className="flex-1 bg-black/40 border border-gold/20 rounded-xl px-2 py-1 text-sm outline-none" />
+        <Btn gold onClick={() => adjust(+1)}>+XP</Btn>
+        <Btn onClick={() => adjust(-1)}>−XP</Btn>
+        <Btn className="!bg-rose-600/70" onClick={ban}>{u.status === 'banned' ? 'Unban' : 'Ban'}</Btn>
+      </div>
+    </Card>
+  )
+}
+
 function Users({ flash }) {
   const [q, setQ] = useState('')
   const [rows, setRows] = useState(null)
@@ -85,17 +122,54 @@ function Users({ flash }) {
       </div>
       {!rows ? <Spinner /> : rows.length === 0 ? (
         <Card className="text-center text-white/40">No users found.</Card>
-      ) : rows.map((u) => (
-        <Card key={u.id}>
-          <div className="flex items-center justify-between">
-            <div className="font-bold">@{u.username || u.first_name || u.id}</div>
-            <Chip tone={u.status === 'banned' ? 'red' : 'green'}>{u.status}</Chip>
+      ) : rows.map((u) => <UserRow key={u.id} u={u} flash={flash} reload={search} />)}
+    </div>
+  )
+}
+
+function RanksAdmin({ flash }) {
+  const [d, setD] = useState(null)
+  const load = () => api.adminRanking().then(setD).catch((e) => flash(e.message, 'red'))
+  useEffect(() => { load() }, [])
+  if (!d) return <Spinner />
+  const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`
+  return (
+    <div className="space-y-3">
+      <Card>
+        <div className="text-sm font-bold">🏆 Top Operators</div>
+        <div className="text-[10px] text-white/40 mb-2">Live ranking by lifetime ZLN-XP. Tap a user in the Users tab to edit XP / ban.</div>
+        {d.top.map((u, i) => (
+          <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="w-6 text-center">{medal(i)}</span>
+              <div className="min-w-0">
+                <div className="font-semibold truncate">@{u.username || u.first_name || u.id}</div>
+                <div className="text-[10px] text-white/40">{u.rank_name} · Lv.{u.level} · ID {u.id}</div>
+              </div>
+            </div>
+            <span className="text-gold font-bold text-sm">{Number(u.points).toLocaleString()}</span>
           </div>
-          <div className="text-[11px] text-white/50 mt-1">
-            ID {u.id} · Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP
+        ))}
+      </Card>
+
+      <Card style={{ borderColor: 'rgba(244,63,94,0.4)' }}>
+        <div className="text-sm font-bold text-rose-300">🚨 Suspicious / Flagged ({d.suspicious.length})</div>
+        {d.suspicious.length === 0 ? (
+          <div className="text-[11px] text-white/40 mt-1">No shadow-banned or banned accounts.</div>
+        ) : d.suspicious.map((u) => (
+          <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
+            <div className="min-w-0">
+              <div className="font-semibold truncate">@{u.username || u.first_name || u.id}</div>
+              <div className="text-[10px] text-white/40">ID {u.id} · {Number(u.points).toLocaleString()} XP</div>
+            </div>
+            <Chip tone={u.status === 'banned' ? 'red' : 'gray'}>{u.status === 'banned' ? 'banned' : 'shadow'}</Chip>
           </div>
-        </Card>
-      ))}
+        ))}
+      </Card>
+
+      <div className="text-[10px] text-white/40 text-center">
+        Weekly leaderboard auto-resets every week (rolling window). Lifetime ranking is permanent.
+      </div>
     </div>
   )
 }
@@ -110,11 +184,15 @@ function Puzzles({ flash }) {
   const [diff, setDiff] = useState('')
   const [open, setOpen] = useState(null)
   const [reveal, setReveal] = useState({})   // per-puzzle: show answer/scripts inline
+  const [editing, setEditing] = useState(null)   // null | {} (new) | puzzle (edit)
   const load = () => {
     api.adminPuzzles(diff).then((d) => setRows(d.puzzles)).catch((e) => flash(e.message, 'red'))
     api.puzzleOverview().then(setOv).catch(() => {})
   }
   useEffect(() => { load() }, [diff])
+
+  if (editing) return <PuzzleForm initial={editing} flash={flash}
+    onDone={() => { setEditing(null); load() }} onCancel={() => setEditing(null)} />
 
   const act = async (fn, ok) => { try { await fn(); flash(ok); load() } catch (e) { flash(e.message, 'red') } }
   const statusTone = { active: 'green', closed: 'red', skipped: 'gray' }
@@ -138,6 +216,8 @@ function Puzzles({ flash }) {
           </div>
         </Card>
       )}
+
+      <Btn gold className="w-full" onClick={() => setEditing({})}>➕ Create New Puzzle</Btn>
 
       <select value={diff} onChange={(e) => setDiff(e.target.value)}
         className="w-full bg-black/40 border border-gold/20 rounded-xl px-2 py-2 text-sm">
@@ -176,6 +256,7 @@ function Puzzles({ flash }) {
           {open === p.id && (
             <div className="mt-2 border-t border-white/10 pt-2 space-y-2">
               <div className="text-[11px] text-white/60">Q: {p.question}</div>
+              <Btn className="w-full" onClick={() => setEditing(p)}>✏ Edit puzzle</Btn>
 
               {/* Answers/walkthrough/scripts live in the dashboard — reveal instantly, no JSON hunting. */}
               <Btn gold className="w-full" onClick={() => setReveal({ ...reveal, [p.id]: !rv })}>
@@ -185,6 +266,10 @@ function Puzzles({ flash }) {
                 <div className="space-y-1 text-[11px]">
                   <div className="text-gold">🔑 Answer: {p.answer}
                     {p.accepted_variations && <span className="text-white/40"> · also: {p.accepted_variations}</span>}</div>
+                  <div className="text-white/60">📺 YouTube: <span className="text-white/40 break-all">{p.youtube_url || '—'}</span></div>
+                  <div className="text-white/60">🎵 TikTok: <span className="text-white/40 break-all">{p.tiktok_url || '—'}</span></div>
+                  {p.hidden_clue_timestamp && <div className="text-white/60">⏱ Hidden clue @ <b>{p.hidden_clue_timestamp}</b> {p.clue_visible ? '(shown to users)' : '(admin-only)'}</div>}
+                  {p.hidden_clue_description && <div className="text-white/60">📍 Placement: {p.hidden_clue_description}</div>}
                   {[['Hint 1', p.hint1], ['Hint 2', p.hint2], ['Hint 3', p.hint3]].map(([l, v]) => v && (
                     <div key={l} className="text-white/60">{l}: {v}</div>
                   ))}
@@ -218,6 +303,98 @@ function Puzzles({ flash }) {
           )}
         </Card>
       )})}
+    </div>
+  )
+}
+
+function PuzzleForm({ initial, onDone, onCancel, flash }) {
+  const isEdit = !!initial?.id
+  const [f, setF] = useState({
+    id: initial.id, title: initial.title || '', question: initial.question || '',
+    answer: initial.answer || '', accepted_variations: initial.accepted_variations || '',
+    difficulty: initial.difficulty || 'medium', reward: initial.reward || 120, penalty: initial.penalty || 10,
+    category: initial.category || 'ZelionTech', source_topic: initial.source_topic || '',
+    youtube_url: initial.youtube_url || 'https://www.youtube.com/@ZelionTech',
+    tiktok_url: initial.tiktok_url || 'https://www.tiktok.com/@zeliontech_zev',
+    hidden_clue_timestamp: initial.hidden_clue_timestamp || '',
+    hidden_clue_description: initial.hidden_clue_description || '',
+    clue_visible: !!initial.clue_visible,
+    explanation: initial.explanation || '', walkthrough: initial.walkthrough || '',
+    youtube_script: '', tiktok_script: '',
+  })
+  const [busy, setBusy] = useState(false)
+  const set = (k) => (e) => setF({ ...f, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value })
+  const save = async () => {
+    if (!f.title || !f.question || !f.answer) return flash('Title, question and answer are required', 'red')
+    setBusy(true)
+    try { await api.puzzleSave(f); flash(isEdit ? 'Puzzle updated ✅' : 'Puzzle created ✅'); onDone() }
+    catch (e) { flash(e.message, 'red') } finally { setBusy(false) }
+  }
+  // Plain render functions (NOT components) so inputs keep focus while typing.
+  const field = (label, k, type = 'text', ph = '') => (
+    <label className="block" key={k}>
+      <div className="text-[11px] text-white/50 mb-0.5">{label}</div>
+      <input type={type} value={f[k]} onChange={set(k)} placeholder={ph}
+        className="w-full bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none" />
+    </label>
+  )
+  const area = (label, k, ph = '') => (
+    <label className="block" key={k}>
+      <div className="text-[11px] text-white/50 mb-0.5">{label}</div>
+      <textarea value={f[k]} onChange={set(k)} placeholder={ph} rows={3}
+        className="w-full bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none" />
+    </label>
+  )
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="font-bold">{isEdit ? `✏ Edit Puzzle #${f.id}` : '➕ New ZelionTech Puzzle'}</div>
+        <button className="text-xs text-white/40 underline" onClick={onCancel}>Cancel</button>
+      </div>
+      <Card className="space-y-2">
+        {field('Title', 'title', 'text', 'Flash Frame: Verified Energy')}
+        {area('User-facing question', 'question', "What word flashes at 00:07 in today's TikTok hint?")}
+        <div className="grid grid-cols-2 gap-2">
+          {field('Correct answer', 'answer', 'text', 'VERIFIED')}
+          {field('Accepted answers (comma)', 'accepted_variations', 'text', 'verified, verified energy')}
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block">
+            <div className="text-[11px] text-white/50 mb-0.5">Difficulty</div>
+            <select value={f.difficulty} onChange={set('difficulty')}
+              className="w-full bg-black/40 border border-gold/20 rounded-xl px-2 py-2 text-sm">
+              {['easy', 'medium', 'hard', 'legendary'].map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+          </label>
+          {field('Reward', 'reward', 'number')}
+          {field('Penalty', 'penalty', 'number')}
+        </div>
+      </Card>
+
+      <Card className="space-y-2">
+        <div className="text-[11px] text-gold font-bold">🎬 Video clue (users get hints ONLY here)</div>
+        {field('YouTube video URL', 'youtube_url', 'text', 'https://www.youtube.com/watch?v=…')}
+        {field('TikTok video URL', 'tiktok_url', 'text', 'https://www.tiktok.com/@zeliontech_zev/video/…')}
+        <div className="grid grid-cols-2 gap-2">
+          {field('Hidden clue timestamp', 'hidden_clue_timestamp', 'text', '00:07')}
+          <label className="flex items-end gap-2 pb-2">
+            <input type="checkbox" checked={f.clue_visible} onChange={set('clue_visible')} />
+            <span className="text-[11px] text-white/60">Show timestamp to users</span>
+          </label>
+        </div>
+        {area('Hidden clue placement (admin-only)', 'hidden_clue_description', 'White-on-black frame flashes VERIFIED at ~0.4s')}
+      </Card>
+
+      <Card className="space-y-2">
+        <div className="text-[11px] text-white/50 font-bold">🔒 Admin-only solution & scripts</div>
+        {area('Explanation / full solution', 'explanation')}
+        {area('Walkthrough', 'walkthrough')}
+        {area('YouTube script', 'youtube_script', '(leave blank to keep existing)')}
+        {area('TikTok script', 'tiktok_script', '(leave blank to keep existing)')}
+      </Card>
+
+      <Btn gold className="w-full" disabled={busy} onClick={save}>{busy ? 'Saving…' : (isEdit ? 'Save changes' : 'Create puzzle')}</Btn>
+      <div className="text-[10px] text-white/40 text-center">New puzzles start as “upcoming” and never auto-release. Release them from the list.</div>
     </div>
   )
 }

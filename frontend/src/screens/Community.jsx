@@ -19,7 +19,7 @@ function openLink(url) {
   else window.open(url, '_blank')
 }
 
-export default function Community({ refresh, flash }) {
+export default function Community({ refresh, flash, go }) {
   const [d, setD] = useState(null)
   const [board, setBoard] = useState('today')
   const [showInfo, setShowInfo] = useState(false)
@@ -56,6 +56,9 @@ export default function Community({ refresh, flash }) {
 
   return (
     <div className="space-y-4">
+      {go && (
+        <Btn gold className="w-full" onClick={() => go('ranks')}>🏆 Ranks & Leaderboard</Btn>
+      )}
       <Card className="flex items-center gap-3">
         <Logo size={34} />
         <div className="flex-1">

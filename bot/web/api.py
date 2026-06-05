@@ -1,5 +1,6 @@
 """Mini App REST API (aiohttp). All endpoints authenticate via Telegram initData."""
 import json
+import time
 from aiohttp import web
 
 from ..config import settings
@@ -203,16 +204,30 @@ async def get_leaderboard(request):
     pool, redis = request.app["pool"], request.app["redis"]
     uid = request["user"]["id"]
 
-    async def board(key):
+    async def board(key, ranked=False):
         pairs = await redis_lb.top(redis, key, 10)
-        names = await leaderboard.names_for(pool, [u for u, _ in pairs])
-        return [{"name": names.get(u, str(u)), "score": s} for u, s in pairs]
+        ids = [u for u, _ in pairs]
+        names = await leaderboard.names_for(pool, ids)
+        # Enrich with level + rank name (all-time score == lifetime points).
+        out = []
+        for pos, (u, s) in enumerate(pairs, start=1):
+            lvl = economy.level_for(int(s)) if ranked else None
+            out.append({
+                "position": pos, "name": names.get(u, str(u)), "score": int(s),
+                "level": lvl, "rank": economy.rank_name(lvl) if lvl is not None else None,
+            })
+        return out
 
+    # Lifetime points table for accurate level/rank of the top operators.
+    alltime_pairs = await redis_lb.top(redis, redis_lb.ALL, 10)
+    my_level = economy.level_for(int(await redis_lb.score(redis, redis_lb.ALL, uid) or 0))
     return web.json_response({
         "weekly": await board(redis_lb.WEEK),
-        "alltime": await board(redis_lb.ALL),
+        "alltime": await board(redis_lb.ALL, ranked=True),
         "my_rank": await redis_lb.rank(redis, redis_lb.ALL, uid),
         "my_week": await redis_lb.score(redis, redis_lb.WEEK, uid),
+        "my_level": my_level,
+        "my_rank_name": economy.rank_name(my_level),
     })
 
 
@@ -410,6 +425,62 @@ async def admin_users(request):
                 "SELECT id, username, first_name, points, level, status FROM users "
                 "ORDER BY points DESC LIMIT 25")
     return web.json_response({"users": [dict(r) for r in rows]})
+
+
+@authed
+@admin_only
+async def admin_ranking(request):
+    """Admin ranking dashboard: top operators + suspicious accounts."""
+    pool = request.app["pool"]
+    async with pool.acquire() as con:
+        top = await con.fetch(
+            "SELECT id, username, first_name, points, level, status, shadow_banned "
+            "FROM users ORDER BY points DESC, id ASC LIMIT 25")
+        suspicious = await con.fetch(
+            "SELECT id, username, first_name, points, level, status, shadow_banned FROM users "
+            "WHERE shadow_banned=true OR status='banned' ORDER BY points DESC LIMIT 25")
+    def row(r):
+        d = dict(r)
+        d["rank_name"] = economy.rank_name(int(r["level"] or 0))
+        return d
+    return web.json_response({"top": [row(r) for r in top], "suspicious": [row(r) for r in suspicious]})
+
+
+@authed
+@admin_only
+async def admin_user_xp(request):
+    """Adjust a user's ZLN-XP by a signed delta (admin XP edit)."""
+    uid = int(request.match_info["id"])
+    body = await request.json() if request.can_read_body else {}
+    try:
+        delta = int(body.get("delta", 0))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad_delta"}, status=400)
+    if delta == 0:
+        return web.json_response({"error": "zero_delta"}, status=400)
+    pool, redis = request.app["pool"], request.app["redis"]
+    ref = f"admin_xp:{uid}:{int(time.time())}"
+    if delta > 0:
+        await economy.award_points(pool, uid, delta, "admin_grant", ref, redis=redis)
+    else:
+        await economy.deduct_points(pool, uid, -delta, "admin_deduct", ref)
+    async with pool.acquire() as con:
+        pts = await con.fetchval("SELECT points FROM users WHERE id=$1", uid)
+    return web.json_response({"result": "ok", "points": int(pts or 0), "delta": delta})
+
+
+@authed
+@admin_only
+async def admin_user_ban(request):
+    """Toggle a user's ban status (admin)."""
+    uid = int(request.match_info["id"])
+    body = await request.json() if request.can_read_body else {}
+    banned = bool(body.get("banned", True))
+    pool = request.app["pool"]
+    async with pool.acquire() as con:
+        await con.execute("UPDATE users SET status=$1 WHERE id=$2",
+                          "banned" if banned else "active", uid)
+    return web.json_response({"result": "ok", "status": "banned" if banned else "active"})
 
 
 @authed
@@ -730,8 +801,21 @@ async def admin_puzzles(request):
          "walkthrough": r.get("walkthrough"),
          "hint1": r["hint1"], "hint2": r["hint2"], "hint3": r["hint3"],
          "released_hints": r.get("released_hints", 0),
+         "youtube_url": r.get("youtube_url"), "tiktok_url": r.get("tiktok_url"),
+         "hidden_clue_timestamp": r.get("hidden_clue_timestamp"),
+         "hidden_clue_description": r.get("hidden_clue_description"),
+         "clue_visible": r.get("clue_visible", False),
          "youtube_posted": r.get("youtube_posted", False),
          "telegram_posted": r.get("telegram_posted", False)} for r in rows]})
+
+
+@authed
+@admin_only
+async def admin_puzzle_save(request):
+    """Create or edit a puzzle (all fields) from the admin dashboard."""
+    body = await request.json() if request.can_read_body else {}
+    pid = await pzsvc.save_puzzle(request.app["pool"], body)
+    return web.json_response({"result": "saved", "id": pid})
 
 
 @authed
@@ -847,6 +931,7 @@ def setup_api(app: web.Application):
     r.add_get("/api/puzzles/history", puzzles_history)
     r.add_get("/api/puzzles/leaderboard", puzzles_leaderboard)
     r.add_get("/api/admin/puzzles", admin_puzzles)
+    r.add_post("/api/admin/puzzles/save", admin_puzzle_save)
     r.add_post("/api/admin/puzzles/{id}/activate", admin_puzzle_activate)
     r.add_post("/api/admin/puzzles/{id}/deactivate", admin_puzzle_deactivate)
     r.add_get("/api/admin/puzzles/overview", admin_puzzle_overview)
@@ -872,6 +957,9 @@ def setup_api(app: web.Application):
     r.add_get("/api/admin/debug", admin_debug)
     r.add_post("/api/admin/login", admin_login)
     r.add_get("/api/admin/users", admin_users)
+    r.add_get("/api/admin/ranking", admin_ranking)
+    r.add_post("/api/admin/users/{id}/xp", admin_user_xp)
+    r.add_post("/api/admin/users/{id}/ban", admin_user_ban)
     # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)
     r.add_get("/api/admin/proofs/{id}/image", admin_proof_image)

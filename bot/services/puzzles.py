@@ -1,6 +1,7 @@
 """Zelion Intelligence puzzle game logic. Server-authoritative; answers never sent
 to users. Anti-cheat: 5 wrong attempts/puzzle -> 15-min cooldown."""
 import re
+import time
 import datetime as dt
 from . import economy
 
@@ -14,6 +15,15 @@ def _norm(s):
 
 def _today():
     return dt.date.today()
+
+
+def _get(row, key, default=None):
+    """Safe column access for both asyncpg.Record and dict rows."""
+    try:
+        v = row[key]
+    except (KeyError, IndexError):
+        return default
+    return v if v is not None else default
 
 
 def _released_hint_count(row):
@@ -37,10 +47,17 @@ def _public(row, solved=False):
         "released_hints": _released_hint_count(row),
         "youtube_posted": bool(row["youtube_posted"]) if "youtube_posted" in row else False,
         "telegram_posted": bool(row["telegram_posted"]) if "telegram_posted" in row else False,
+        # Official video links so the Hint buttons open the right video (safe to expose).
+        "youtube_url": _get(row, "youtube_url", "https://www.youtube.com/@ZelionTech"),
+        "tiktok_url": _get(row, "tiktok_url", "https://www.tiktok.com/@zeliontech_zev"),
     }
+    # Hidden-clue placement is admin-only UNLESS the admin chose to reveal it.
+    if _get(row, "clue_visible", False):
+        d["clue_timestamp"] = _get(row, "hidden_clue_timestamp")
+        d["clue_description"] = _get(row, "hidden_clue_description")
     if solved:
         d["explanation"] = row["explanation"]
-    return d  # NOTE: answer / unreleased hints / scripts are never included
+    return d  # NOTE: answer / walkthrough / scripts / unreleased clue placement never included
 
 
 async def get_setting(pool, key, default=None):
@@ -206,6 +223,58 @@ async def release_puzzle(pool, puzzle_id):
         await con.execute("UPDATE puzzles SET active=false WHERE status='active' AND id<>$1", puzzle_id)
         await con.execute("UPDATE puzzles SET status='active', active=true WHERE id=$1", puzzle_id)
     await set_setting(pool, "active_puzzle", puzzle_id)
+
+
+async def save_puzzle(pool, data):
+    """Create (no id) or update (with id) a puzzle from the admin dashboard.
+    Returns the puzzle id. New puzzles start 'upcoming' + inactive (never auto-release)."""
+    f = {
+        "title": (data.get("title") or "Untitled Puzzle"),
+        "question": (data.get("question") or ""),
+        "answer": _norm(data.get("answer") or ""),
+        "accepted_variations": (data.get("accepted_variations") or ""),
+        "difficulty": (data.get("difficulty") or "medium"),
+        "reward": int(data.get("reward") or 100),
+        "penalty": int(data.get("penalty") or 10),
+        "category": (data.get("category") or "ZelionTech"),
+        "source_topic": (data.get("source_topic") or "ZelionTech"),
+        "explanation": (data.get("explanation") or ""),
+        "walkthrough": (data.get("walkthrough") or ""),
+        "youtube_url": (data.get("youtube_url") or "https://www.youtube.com/@ZelionTech"),
+        "tiktok_url": (data.get("tiktok_url") or "https://www.tiktok.com/@zeliontech_zev"),
+        "hidden_clue_timestamp": (data.get("hidden_clue_timestamp") or ""),
+        "hidden_clue_description": (data.get("hidden_clue_description") or ""),
+        "clue_visible": bool(data.get("clue_visible") or False),
+        "youtube_instruction": (data.get("youtube_instruction")
+                                or "The hint is hidden in today's official YouTube video."),
+        "telegram_instruction": (data.get("telegram_instruction")
+                                 or "A new hint video is live on YouTube and TikTok."),
+    }
+    pid = data.get("id")
+    async with pool.acquire() as con:
+        if pid:
+            cols = ", ".join(f"{k}=${i+1}" for i, k in enumerate(f))
+            await con.execute(f"UPDATE puzzles SET {cols} WHERE id=${len(f)+1}",
+                              *f.values(), int(pid))
+            new_id = int(pid)
+        else:
+            keys = list(f.keys()) + ["status", "active", "slug"]
+            vals = list(f.values()) + ["upcoming", False,
+                                       f"admin-{_norm(f['title'])[:20]}-{int(time.time())}"]
+            ph = ", ".join(f"${i+1}" for i in range(len(vals)))
+            new_id = await con.fetchval(
+                f"INSERT INTO puzzles ({', '.join(keys)}) VALUES ({ph}) RETURNING id", *vals)
+        # YouTube/TikTok scripts (admin-only content).
+        await con.execute(
+            """INSERT INTO puzzle_scripts (puzzle_id, youtube_script, tiktok_script, clue_timestamp, visual_clue)
+               VALUES ($1,$2,$3,$4,$5)
+               ON CONFLICT (puzzle_id) DO UPDATE SET
+                 youtube_script=COALESCE(NULLIF(EXCLUDED.youtube_script,''), puzzle_scripts.youtube_script),
+                 tiktok_script=COALESCE(NULLIF(EXCLUDED.tiktok_script,''), puzzle_scripts.tiktok_script),
+                 clue_timestamp=EXCLUDED.clue_timestamp, visual_clue=EXCLUDED.visual_clue""",
+            new_id, (data.get("youtube_script") or ""), (data.get("tiktok_script") or ""),
+            f["hidden_clue_timestamp"], f["hidden_clue_description"])
+    return new_id
 
 
 async def admin_overview(pool):

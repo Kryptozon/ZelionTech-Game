@@ -42,6 +42,16 @@ export default function Profile({ isAdmin, go }) {
         </button>
       )}
 
+      <button onClick={() => go && go('ranks')}
+        className="card w-full text-left flex items-center gap-3 active:scale-[0.98] transition">
+        <div className="text-2xl">🏆</div>
+        <div className="flex-1">
+          <div className="font-bold text-gold">Ranks & Leaderboard</div>
+          <div className="text-[11px] text-white/45">Top operators · weekly & all-time · your position</div>
+        </div>
+        <div className="text-white/40">→</div>
+      </button>
+
       <Card className="flex items-center justify-between">
         <RankBadge rank={qr?.rank || 'Reactor Cadet'}
           sub={qr?.next_rank ? `${qr.correct}/${qr.next_at} correct → ${qr.next_rank}` : `${qr?.correct ?? 0} correct`} />

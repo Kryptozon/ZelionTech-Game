@@ -78,7 +78,7 @@ export default function App() {
         {tab === 'quiz' && <Quiz me={me} refresh={refresh} flash={flash} />}
         {tab === 'intel' && <Intelligence refresh={refresh} flash={flash} />}
         {tab === 'tasks' && <Tasks refresh={refresh} flash={flash} go={setTab} />}
-        {tab === 'community' && <Community refresh={refresh} flash={flash} />}
+        {tab === 'community' && <Community refresh={refresh} flash={flash} go={setTab} />}
         {tab === 'ranks' && <Leaderboard />}
         {tab === 'profile' && <Profile isAdmin={isAdmin} go={setTab} />}
         {tab === 'admin' && <Admin me={me} admin={admin} flash={flash} />}

@@ -243,6 +243,7 @@ export default function Tap({ me, refresh, flash, go }) {
         <Btn onClick={() => go('lab')}>🛠 Reactor Lab</Btn>
         <Btn onClick={() => go('tasks')}>🎯 Missions</Btn>
       </div>
+      <Btn gold className="w-full" onClick={() => go('ranks')}>🏆 Ranks & Leaderboard</Btn>
 
       {capModal && (
         <div onClick={() => setCapModal(false)}

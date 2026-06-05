@@ -59,9 +59,13 @@ export const api = {
   adminMe: () => req('/admin/me'),
   adminLogin: (password) => req('/admin/login', { method: 'POST', body: JSON.stringify({ password }) }),
   adminUsers: (q = '') => req('/admin/users?q=' + encodeURIComponent(q)),
+  adminRanking: () => req('/admin/ranking'),
+  adminUserXp: (id, delta) => req(`/admin/users/${id}/xp`, { method: 'POST', body: JSON.stringify({ delta }) }),
+  adminUserBan: (id, banned) => req(`/admin/users/${id}/ban`, { method: 'POST', body: JSON.stringify({ banned }) }),
   puzzleOverview: () => req('/admin/puzzles/overview'),
   puzzleRelease: (id) => req(`/admin/puzzles/${id}/release`, { method: 'POST' }),
   puzzleReopen: (id) => req(`/admin/puzzles/${id}/reopen`, { method: 'POST' }),
+  puzzleSave: (data) => req('/admin/puzzles/save', { method: 'POST', body: JSON.stringify(data) }),
   // admin proof dashboard
   adminProofs: (status = 'pending') => req('/admin/proofs?status=' + status),
   adminProofStats: () => req('/admin/proof-stats'),
