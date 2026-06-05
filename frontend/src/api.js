@@ -48,6 +48,9 @@ export const api = {
   quizDaily: () => req('/quiz/daily'),
   quizRank: () => req('/quiz/rank'),
 
+  // admin
+  adminMe: () => req('/admin/me'),
+  adminUsers: (q = '') => req('/admin/users?q=' + encodeURIComponent(q)),
   // admin proof dashboard
   adminProofs: (status = 'pending') => req('/admin/proofs?status=' + status),
   adminProofStats: () => req('/admin/proof-stats'),

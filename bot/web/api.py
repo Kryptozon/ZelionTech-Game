@@ -341,6 +341,35 @@ async def quiz_status(request):
 # ADMIN ENDPOINTS
 # ============================================================
 @authed
+async def admin_me(request):
+    """Authed (not admin-gated): tells the client whether THIS user is the admin."""
+    uid = request["user"]["id"]
+    return web.json_response({"is_admin": settings.is_admin(uid), "id": uid,
+                              "admin_ids": settings.ADMIN_IDS})
+
+
+@authed
+@admin_only
+async def admin_users(request):
+    """Search users by Telegram ID or username (admin only)."""
+    q = (request.query.get("q") or "").strip()
+    pool = request.app["pool"]
+    async with pool.acquire() as con:
+        if q.isdigit():
+            rows = await con.fetch(
+                "SELECT id, username, first_name, points, level, status FROM users WHERE id=$1", int(q))
+        elif q:
+            rows = await con.fetch(
+                "SELECT id, username, first_name, points, level, status FROM users "
+                "WHERE username ILIKE $1 OR first_name ILIKE $1 ORDER BY points DESC LIMIT 25", f"%{q}%")
+        else:
+            rows = await con.fetch(
+                "SELECT id, username, first_name, points, level, status FROM users "
+                "ORDER BY points DESC LIMIT 25")
+    return web.json_response({"users": [dict(r) for r in rows]})
+
+
+@authed
 @admin_only
 async def admin_proofs(request):
     status = request.query.get("status", "pending")
@@ -771,6 +800,9 @@ def setup_api(app: web.Application):
     r.add_get("/api/group/leaderboard", group_leaderboard_ep)
     r.add_get("/api/group/daily-discussion", group_discussion_ep)
     r.add_get("/api/group/health", group_health_ep)
+    # admin — identity + user search
+    r.add_get("/api/admin/me", admin_me)
+    r.add_get("/api/admin/users", admin_users)
     # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)
     r.add_get("/api/admin/proofs/{id}/image", admin_proof_image)

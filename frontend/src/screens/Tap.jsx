@@ -30,7 +30,8 @@ export default function Tap({ me, refresh, flash, go }) {
         const e = Math.min(s.max_energy, energy.current + s.recharge_rate)
         energy.current = e
         const cd = Math.max(0, (s.cooldown_seconds || 0) - 1)
-        return { ...s, energy: e, cooldown_seconds: cd }
+        const hr = Math.max(0, (s.hourly_reset_seconds || 0) - 1)
+        return { ...s, energy: e, cooldown_seconds: cd, hourly_reset_seconds: hr }
       })
     }, 1000)
     return () => clearInterval(t)
@@ -190,9 +191,12 @@ export default function Tap({ me, refresh, flash, go }) {
           className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6 fade-in">
           <div onClick={(e) => e.stopPropagation()} className="card max-w-sm w-full text-center">
             <Logo size={48} />
-            <div className="font-extrabold text-gold text-lg mt-2">Daily Reactor capacity reached</div>
-            <div className="text-sm text-white/70 mt-2">
-              Complete quizzes, puzzles, missions, and community tasks to earn more ZLN-XP.
+            <div className="font-extrabold text-gold text-lg mt-2">Reactor capacity depleted</div>
+            <div className="text-sm text-white/70 mt-1">
+              Next refill in: <b className="text-gold">{fmt(st.hourly_reset_seconds)}</b>
+            </div>
+            <div className="text-sm text-white/60 mt-2">
+              Meanwhile, earn ZLN-XP via quizzes, puzzles, missions and community tasks.
             </div>
             <Btn gold className="w-full mt-4" onClick={() => setCapModal(false)}>Got it</Btn>
           </div>

@@ -26,12 +26,15 @@ export default function App() {
   const [tab, setTab] = useState('reactor')
   const [err, setErr] = useState('')
   const [toast, setToast] = useState(null)
+  const [admin, setAdmin] = useState(null)   // { is_admin, id } from /api/admin/me
 
   const refresh = useCallback(async () => {
     try { setMe(await api.me()) } catch (e) { setErr(e.message) }
   }, [])
 
   useEffect(() => { refresh() }, [refresh])
+  // Server is the source of truth for admin status (frontend never decides).
+  useEffect(() => { api.adminMe().then(setAdmin).catch(() => setAdmin({ is_admin: false })) }, [])
 
   const flash = (msg, tone) => { setToast({ msg, tone }); setTimeout(() => setToast(null), 1800) }
 
@@ -46,7 +49,7 @@ export default function App() {
   )
   if (!me) return <Center><Splash /></Center>
 
-  const tabs = me.is_admin ? [...TABS, { id: 'admin', label: 'Admin', icon: '🛡' }] : TABS
+  const isAdmin = !!admin?.is_admin
 
   return (
     <div className="app-shell max-w-md mx-auto">
@@ -56,11 +59,22 @@ export default function App() {
           <div className="font-extrabold leading-tight">ZELION <span className="text-gold">REACTOR</span></div>
           <div className="text-[11px] text-white/40">Operator @{me.username || me.first_name}</div>
         </div>
+        {/* Admin shield — visible only when the server confirms this user is admin. */}
+        {isAdmin && (
+          <button onClick={() => setTab('admin')} title="Admin Dashboard"
+            className={`text-2xl ${tab === 'admin' ? 'text-gold' : 'text-white/70'}`}>🛡</button>
+        )}
         <div className="text-right">
           <div className="label">Quiz rank</div>
           <div className="text-xs font-bold text-gold">{me.quiz_rank}</div>
         </div>
       </header>
+
+      {isAdmin && (
+        <div className="px-4 -mt-1 mb-1 text-[10px] text-emerald-400/80">
+          🛡 Admin mode active — ID {admin.id}
+        </div>
+      )}
 
       <main className="app-main px-4">
         {tab === 'reactor' && <Tap me={me} refresh={refresh} flash={flash} go={setTab} />}
@@ -71,13 +85,15 @@ export default function App() {
         {tab === 'tasks' && <Tasks refresh={refresh} flash={flash} go={setTab} />}
         {tab === 'community' && <Community refresh={refresh} flash={flash} />}
         {tab === 'ranks' && <Leaderboard />}
-        {tab === 'profile' && <Profile />}
-        {tab === 'admin' && me.is_admin && <Admin me={me} flash={flash} />}
+        {tab === 'profile' && <Profile isAdmin={isAdmin} go={setTab} />}
+        {tab === 'admin' && (isAdmin
+          ? <Admin me={{ ...me, is_admin: true }} flash={flash} />
+          : <Center><p className="text-rose-400 font-bold">Unauthorized</p></Center>)}
       </main>
 
       <nav className="app-nav">
         <div className="flex max-w-md mx-auto h-[72px] items-center">
-          {tabs.map((t) => (
+          {TABS.map((t) => (
             <button key={t.id} onClick={() => setTab(t.id)}
               className={`flex-1 text-center text-[11px] font-semibold ${tab === t.id ? 'text-gold' : 'text-white/45'}`}>
               <div className="text-lg leading-none mb-0.5">{t.icon}</div>{t.label}

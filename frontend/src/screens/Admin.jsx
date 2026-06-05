@@ -18,8 +18,9 @@ export default function Admin({ me, flash }) {
   return (
     <div className="space-y-4">
       <Counters />
+      <div className="text-[10px] text-emerald-400/80">🛡 Admin mode active — ID {me?.id || 1087968824}</div>
       <div className="flex gap-2 flex-wrap">
-        {[['proofs', 'Proofs'], ['questions', 'Quiz'], ['puzzles', 'Puzzles'], ['kb', 'KB']].map(([id, l]) => (
+        {[['proofs', 'Proofs'], ['questions', 'Quiz'], ['puzzles', 'Puzzles'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 btn ${tab === id ? 'btn-gold' : 'btn-ghost'}`}>{l}</button>
         ))}
@@ -27,7 +28,40 @@ export default function Admin({ me, flash }) {
       {tab === 'proofs' && <Proofs flash={flash} />}
       {tab === 'questions' && <Questions flash={flash} />}
       {tab === 'puzzles' && <Puzzles flash={flash} />}
+      {tab === 'users' && <Users flash={flash} />}
       {tab === 'kb' && <KB flash={flash} />}
+    </div>
+  )
+}
+
+function Users({ flash }) {
+  const [q, setQ] = useState('')
+  const [rows, setRows] = useState(null)
+  const search = async () => {
+    try { setRows((await api.adminUsers(q)).users) } catch (e) { flash(e.message, 'red') }
+  }
+  useEffect(() => { search() }, [])
+  return (
+    <div className="space-y-3">
+      <div className="flex gap-2">
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Telegram ID or username…"
+          onKeyDown={(e) => e.key === 'Enter' && search()}
+          className="flex-1 bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none" />
+        <Btn gold onClick={search}>Search</Btn>
+      </div>
+      {!rows ? <Spinner /> : rows.length === 0 ? (
+        <Card className="text-center text-white/40">No users found.</Card>
+      ) : rows.map((u) => (
+        <Card key={u.id}>
+          <div className="flex items-center justify-between">
+            <div className="font-bold">@{u.username || u.first_name || u.id}</div>
+            <Chip tone={u.status === 'banned' ? 'red' : 'green'}>{u.status}</Chip>
+          </div>
+          <div className="text-[11px] text-white/50 mt-1">
+            ID {u.id} · Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP
+          </div>
+        </Card>
+      ))}
     </div>
   )
 }

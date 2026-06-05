@@ -3,7 +3,7 @@ import { api } from '../api'
 import { Card, Btn, Stat, Spinner, Progress, RankBadge } from '../ui'
 import { tg } from '../telegram'
 
-export default function Profile() {
+export default function Profile({ isAdmin, go }) {
   const [p, setP] = useState(null)
   const [ref, setRef] = useState(null)
   const [qr, setQr] = useState(null)
@@ -29,6 +29,19 @@ export default function Profile() {
 
   return (
     <div className="space-y-4">
+      {isAdmin && (
+        <button onClick={() => go && go('admin')}
+          className="card w-full text-left flex items-center gap-3 active:scale-[0.98] transition"
+          style={{ borderColor: 'rgba(245,197,66,0.4)' }}>
+          <div className="text-2xl">🛡</div>
+          <div className="flex-1">
+            <div className="font-bold text-gold">Admin Dashboard</div>
+            <div className="text-[11px] text-white/45">Proofs · puzzles · hints · scripts · users</div>
+          </div>
+          <div className="text-white/40">→</div>
+        </button>
+      )}
+
       <Card className="flex items-center justify-between">
         <RankBadge rank={qr?.rank || 'Reactor Cadet'}
           sub={qr?.next_rank ? `${qr.correct}/${qr.next_at} correct → ${qr.next_rank}` : `${qr?.correct ?? 0} correct`} />
