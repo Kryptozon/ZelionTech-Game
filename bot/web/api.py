@@ -412,19 +412,21 @@ async def admin_users(request):
     """Search users by Telegram ID or username (admin only)."""
     q = (request.query.get("q") or "").strip()
     pool = request.app["pool"]
+    cols = "id, username, first_name, points, level, status, shadow_banned"
     async with pool.acquire() as con:
         if q.isdigit():
-            rows = await con.fetch(
-                "SELECT id, username, first_name, points, level, status FROM users WHERE id=$1", int(q))
+            rows = await con.fetch(f"SELECT {cols} FROM users WHERE id=$1", int(q))
         elif q:
             rows = await con.fetch(
-                "SELECT id, username, first_name, points, level, status FROM users "
-                "WHERE username ILIKE $1 OR first_name ILIKE $1 ORDER BY points DESC LIMIT 25", f"%{q}%")
+                f"SELECT {cols} FROM users WHERE username ILIKE $1 OR first_name ILIKE $1 "
+                "ORDER BY points DESC LIMIT 25", f"%{q}%")
         else:
-            rows = await con.fetch(
-                "SELECT id, username, first_name, points, level, status FROM users "
-                "ORDER BY points DESC LIMIT 25")
-    return web.json_response({"users": [dict(r) for r in rows]})
+            rows = await con.fetch(f"SELECT {cols} FROM users ORDER BY points DESC LIMIT 25")
+    def row(r):
+        d = dict(r)
+        d["rank_name"] = economy.rank_name(int(r["level"] or 1))
+        return d
+    return web.json_response({"users": [row(r) for r in rows]})
 
 
 @authed
@@ -446,11 +448,24 @@ async def admin_ranking(request):
     return web.json_response({"top": [row(r) for r in top], "suspicious": [row(r) for r in suspicious]})
 
 
+async def _audit(pool, admin_id, action, target_id, detail):
+    """Append an admin audit record (admin_actions table)."""
+    try:
+        async with pool.acquire() as con:
+            await con.execute(
+                "INSERT INTO admin_actions(admin_id, action, target_id, detail) VALUES($1,$2,$3,$4::jsonb)",
+                admin_id, action, target_id, json.dumps(detail))
+    except Exception:
+        pass
+
+
 @authed
 @admin_only
 async def admin_user_xp(request):
-    """Adjust a user's ZLN-XP by a signed delta (admin XP edit)."""
+    """Adjust a user's ZLN-XP by a signed delta — updates DB, level, leaderboards.
+    new_balance = max(0, old_balance + delta)."""
     uid = int(request.match_info["id"])
+    admin_id = request["user"]["id"]
     body = await request.json() if request.can_read_body else {}
     try:
         delta = int(body.get("delta", 0))
@@ -459,14 +474,34 @@ async def admin_user_xp(request):
     if delta == 0:
         return web.json_response({"error": "zero_delta"}, status=400)
     pool, redis = request.app["pool"], request.app["redis"]
-    ref = f"admin_xp:{uid}:{int(time.time())}"
-    if delta > 0:
-        await economy.award_points(pool, uid, delta, "admin_grant", ref, redis=redis)
-    else:
-        await economy.deduct_points(pool, uid, -delta, "admin_deduct", ref)
-    async with pool.acquire() as con:
-        pts = await con.fetchval("SELECT points FROM users WHERE id=$1", uid)
-    return web.json_response({"result": "ok", "points": int(pts or 0), "delta": delta})
+    res = await economy.admin_set_xp(pool, uid, delta, redis=redis)
+    if res is None:
+        return web.json_response({"error": "user_not_found"}, status=404)
+    await _audit(pool, admin_id, "xp_adjust", uid, {
+        "action": "xp_adjust", "amount": delta,
+        "old_balance": res["old_balance"], "new_balance": res["new_balance"]})
+    return web.json_response({
+        "old_balance": res["old_balance"], "delta": delta, "new_balance": res["new_balance"],
+        "level": res["level"], "rank_name": res["rank_name"]})
+
+
+@authed
+@admin_only
+async def admin_user_reset(request):
+    """Reset a user's game progress to starter state (account record is kept)."""
+    uid = int(request.match_info["id"])
+    admin_id = request["user"]["id"]
+    body = await request.json() if request.can_read_body else {}
+    reason = (body.get("reason") or None)
+    pool, redis = request.app["pool"], request.app["redis"]
+    snap = await economy.reset_account(pool, uid, redis=redis)
+    if snap is None:
+        return web.json_response({"error": "user_not_found"}, status=404)
+    await _audit(pool, admin_id, "reset_account", uid, {
+        "action": "reset_account", "old_xp": snap["old_xp"],
+        "old_level": snap["old_level"], "old_rank": snap["old_rank"], "reason": reason})
+    return web.json_response({"result": "ok", **snap, "new_xp": 0, "new_level": 1,
+                              "new_rank": economy.rank_name(1)})
 
 
 @authed
@@ -959,6 +994,7 @@ def setup_api(app: web.Application):
     r.add_get("/api/admin/users", admin_users)
     r.add_get("/api/admin/ranking", admin_ranking)
     r.add_post("/api/admin/users/{id}/xp", admin_user_xp)
+    r.add_post("/api/admin/users/{id}/reset", admin_user_reset)
     r.add_post("/api/admin/users/{id}/ban", admin_user_ban)
     # admin — proof moderation dashboard
     r.add_get("/api/admin/proofs", admin_proofs)

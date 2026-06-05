@@ -26,9 +26,13 @@ class Settings:
     # Temporary: exposes GET /api/admin/debug (no secrets). Set ADMIN_DEBUG=true on Render
     # to diagnose admin access, then remove it.
     ADMIN_DEBUG = os.getenv("ADMIN_DEBUG", "false").lower() == "true"
-    # Super-admin password — stored only as a hash, verified server-side.
+    # Super-admin dashboard password — read ONLY from the environment, hashed server-side.
+    # The real password is NEVER hardcoded here. Prefer ADMIN_DASHBOARD_PASSWORD;
+    # ADMIN_PASSWORD is accepted for backward compatibility. If neither is set, password
+    # login is disabled (Telegram-ID admin still works).
+    _admin_pw = os.getenv("ADMIN_DASHBOARD_PASSWORD") or os.getenv("ADMIN_PASSWORD") or ""
     ADMIN_PASSWORD_HASH = (os.getenv("ADMIN_PASSWORD_HASH")
-                           or hashlib.sha256(os.getenv("ADMIN_PASSWORD", "ZelioNK76131393@13").encode()).hexdigest())
+                           or (hashlib.sha256(_admin_pw.encode()).hexdigest() if _admin_pw else ""))
 
     DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://zelion:zelion@db:5432/zelion")
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -105,6 +109,9 @@ class Settings:
         return str(user_id) in {str(a) for a in self.ADMIN_IDS}
 
     def check_admin_password(self, password: str) -> bool:
+        # No password configured => password login disabled (never authenticates).
+        if not self.ADMIN_PASSWORD_HASH:
+            return False
         return hmac.compare_digest(
             hashlib.sha256((password or "").encode()).hexdigest(), self.ADMIN_PASSWORD_HASH)
 

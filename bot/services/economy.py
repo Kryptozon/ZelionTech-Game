@@ -131,6 +131,102 @@ async def deduct_points(pool, user_id, amount, reason, ref_id):
     return {"deducted": take, "balance": newbal}
 
 
+# ---------------- Admin XP management ----------------
+async def admin_set_xp(pool, user_id, delta, redis=None):
+    """Admin XP adjustment that affects the REAL game: DB balance, level, and the
+    Redis leaderboards. new_balance = max(0, old + delta). Returns balances or None
+    if the user doesn't exist."""
+    delta = int(delta)
+    async with pool.acquire() as con:
+        async with con.transaction():
+            row = await con.fetchrow("SELECT points, level FROM users WHERE id=$1 FOR UPDATE", user_id)
+            if not row:
+                return None
+            old = int(row["points"] or 0)
+            new = max(0, old + delta)
+            applied = new - old                     # real change after the 0-floor
+            ref = f"admin_adjust:{user_id}:{int(_now().timestamp() * 1000)}"
+            await con.execute(
+                "INSERT INTO points_ledger(user_id, amount, reason, ref_id) VALUES($1,$2,'admin_adjust',$3)",
+                user_id, applied, ref)
+            new_level = level_for(new)              # recompute level up OR down
+            await con.execute("UPDATE users SET points=$1, level=$2 WHERE id=$3",
+                              new, new_level, user_id)
+
+    if redis is not None:
+        # All-time board mirrors lifetime points exactly.
+        if new > 0:
+            await redis.zadd(LB_ALL, {str(user_id): new})
+        else:
+            await redis.zrem(LB_ALL, str(user_id))
+        # Weekly board: shift by the real applied delta, floored at 0.
+        wk = await redis.zscore(LB_WEEK, str(user_id))
+        wk_new = max(0, (int(wk) if wk is not None else 0) + applied)
+        if wk_new > 0:
+            await redis.zadd(LB_WEEK, {str(user_id): wk_new})
+        else:
+            await redis.zrem(LB_WEEK, str(user_id))
+        await redis.delete(f"taphr:{user_id}")      # refresh hourly-capacity cache
+    return {"old_balance": old, "delta": delta, "applied": applied,
+            "new_balance": new, "level": new_level, "rank_name": rank_name(new_level)}
+
+
+# Per-user game-progress tables wiped on a full account reset (all have a user_id column).
+RESET_TABLES = [
+    "points_ledger", "tap_events", "tap_state", "user_tap_missions", "user_upgrades",
+    "user_task_progress", "user_task_unlocks", "task_claims", "puzzle_attempts",
+    "quiz_attempts", "daily_quiz_sessions", "group_activity", "user_group_missions",
+    "passive_rewards", "mission_completions", "proof_submissions", "social_accounts",
+]
+
+
+async def _clear_user_redis(redis, user_id):
+    keys = [f"burst:{user_id}", f"combo:{user_id}", f"gflood:{user_id}", f"quizcd:{user_id}",
+            f"quizstreak:{user_id}", f"quizwrong:{user_id}", f"tapcd:{user_id}",
+            f"taphr:{user_id}", f"tps:{user_id}"]
+    try:
+        await redis.delete(*keys)
+    except Exception:
+        pass
+    for pat in (f"dupmsg:{user_id}:*", f"gmis:{user_id}:*", f"pzcd:{user_id}:*",
+                f"pzwrong:{user_id}:*", f"tapmis:{user_id}:*", f"tapn:{user_id}:*",
+                f"tapwk:{user_id}:*", f"upg:{user_id}:*", f"passive:{user_id}:*"):
+        try:
+            async for k in redis.scan_iter(match=pat, count=300):
+                await redis.delete(k)
+        except Exception:
+            pass
+    await redis.zrem(LB_ALL, str(user_id))
+    await redis.zrem(LB_WEEK, str(user_id))
+
+
+async def reset_account(pool, user_id, redis=None):
+    """Reset a user to starter state WITHOUT deleting the account. Keeps id, username,
+    first_name, created_at, status, referred_by. Returns the pre-reset snapshot or None."""
+    async with pool.acquire() as con:
+        row = await con.fetchrow("SELECT points, level FROM users WHERE id=$1", user_id)
+        if not row:
+            return None
+        snap = {"old_xp": int(row["points"] or 0), "old_level": int(row["level"] or 1),
+                "old_rank": rank_name(int(row["level"] or 1))}
+        async with con.transaction():
+            for t in RESET_TABLES:
+                await con.execute(f"DELETE FROM {t} WHERE user_id=$1", user_id)
+            # Reset progression on the kept account record.
+            await con.execute(
+                "UPDATE users SET points=0, level=1, streak_count=0, last_daily_claim=NULL WHERE id=$1",
+                user_id)
+            # Restore starter energy.
+            await con.execute(
+                "INSERT INTO energy(user_id,current,max_cap,regen_rate,updated_at) "
+                "VALUES($1,100,100,5,now()) "
+                "ON CONFLICT (user_id) DO UPDATE SET current=100, max_cap=100, regen_rate=5, updated_at=now()",
+                user_id)
+    if redis is not None:
+        await _clear_user_redis(redis, user_id)     # heat, cooldowns, capacity, streaks, board score
+    return snap
+
+
 # ---------------- Energy ----------------
 async def get_energy(pool, user_id) -> int:
     async with pool.acquire() as con:

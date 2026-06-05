@@ -61,6 +61,7 @@ export const api = {
   adminUsers: (q = '') => req('/admin/users?q=' + encodeURIComponent(q)),
   adminRanking: () => req('/admin/ranking'),
   adminUserXp: (id, delta) => req(`/admin/users/${id}/xp`, { method: 'POST', body: JSON.stringify({ delta }) }),
+  adminUserReset: (id, reason) => req(`/admin/users/${id}/reset`, { method: 'POST', body: JSON.stringify({ reason }) }),
   adminUserBan: (id, banned) => req(`/admin/users/${id}/ban`, { method: 'POST', body: JSON.stringify({ banned }) }),
   puzzleOverview: () => req('/admin/puzzles/overview'),
   puzzleRelease: (id) => req(`/admin/puzzles/${id}/release`, { method: 'POST' }),

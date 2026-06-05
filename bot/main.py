@@ -118,14 +118,14 @@ async def _bootstrap():
     except Exception as e:
         log.warning("quiz ensure_min failed: %s", e)
 
-    # Guarantee a playable puzzle bank on boot (~200 generated puzzles).
+    # Guarantee the curated ZelionTech puzzle bank on boot (idempotent; no generic puzzles).
     from .services import puzzle_seed
     try:
-        pz = await puzzle_seed.ensure_min(pool, minimum=50)
-        pz_active = await puzzle_seed.count_active(pool)
-        log.info("✓ Puzzle bank ready — %s active puzzle(s) (seeded %s)", pz_active, pz)
+        pz = await puzzle_seed.ensure_seed(pool)
+        log.info("✓ ZelionTech puzzle bank ready — %s in bank (newly seeded %s)",
+                 pz.get("bank"), pz.get("inserted"))
     except Exception as e:
-        log.warning("puzzle ensure_min failed: %s", e)
+        log.warning("puzzle ensure_seed failed: %s", e)
 
     # Seed progressive task chains on boot.
     from .services import tasks as tasksvc

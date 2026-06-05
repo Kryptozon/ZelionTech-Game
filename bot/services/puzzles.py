@@ -51,10 +51,8 @@ def _public(row, solved=False):
         "youtube_url": _get(row, "youtube_url", "https://www.youtube.com/@ZelionTech"),
         "tiktok_url": _get(row, "tiktok_url", "https://www.tiktok.com/@zeliontech_zev"),
     }
-    # Hidden-clue placement is admin-only UNLESS the admin chose to reveal it.
-    if _get(row, "clue_visible", False):
-        d["clue_timestamp"] = _get(row, "hidden_clue_timestamp")
-        d["clue_description"] = _get(row, "hidden_clue_description")
+    # NOTE: answer, accepted answers, walkthrough, hint text, scripts and the hidden-clue
+    # timestamp/placement are ADMIN-ONLY and are never included in the user payload.
     if solved:
         d["explanation"] = row["explanation"]
     return d  # NOTE: answer / walkthrough / scripts / unreleased clue placement never included

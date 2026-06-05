@@ -71,17 +71,34 @@ function AdminLogin({ id, onPass, flash }) {
 
 function UserRow({ u, flash, reload }) {
   const [delta, setDelta] = useState('')
+  const [confirm, setConfirm] = useState('')   // '' = closed; otherwise holds typed text
+  const [resetOpen, setResetOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+
   const adjust = async (sign) => {
     const n = parseInt(delta, 10)
     if (!n || n <= 0) return flash('Enter a positive amount', 'red')
-    try { const r = await api.adminUserXp(u.id, sign * n); flash(`XP set → ${r.points.toLocaleString()}`); setDelta(''); reload && reload() }
-    catch (e) { flash(e.message, 'red') }
+    try {
+      const r = await api.adminUserXp(u.id, sign * n)
+      flash(`✅ XP Updated → ${r.new_balance.toLocaleString()} (${r.rank_name} Lv.${r.level})`)
+      setDelta(''); reload && reload()
+    } catch (e) { flash(e.message, 'red') }
   }
   const ban = async () => {
     const willBan = u.status !== 'banned'
     try { await api.adminUserBan(u.id, willBan); flash(willBan ? 'User banned 🚫' : 'User unbanned ✅'); reload && reload() }
     catch (e) { flash(e.message, 'red') }
   }
+  const doReset = async () => {
+    if (confirm !== 'RESET') return flash('Type RESET to confirm', 'red')
+    setBusy(true)
+    try {
+      const r = await api.adminUserReset(u.id)
+      flash(`✅ Account reset — was Lv.${r.old_level}/${r.old_xp.toLocaleString()} XP`)
+      setResetOpen(false); setConfirm(''); reload && reload()
+    } catch (e) { flash(e.message, 'red') } finally { setBusy(false) }
+  }
+
   return (
     <Card>
       <div className="flex items-center justify-between">
@@ -90,17 +107,47 @@ function UserRow({ u, flash, reload }) {
           {u.status === 'banned' ? 'banned' : (u.shadow_banned ? 'shadow' : 'active')}
         </Chip>
       </div>
-      <div className="text-[11px] text-white/50 mt-1">
-        ID {u.id} · {u.rank_name || ''} Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP
-      </div>
+      {/* Telegram ID · Username · Rank · Level · XP · Status */}
+      <div className="text-[11px] text-white/50 mt-1">ID {u.id} · @{u.username || u.first_name || '—'}</div>
+      <div className="text-[11px] text-white/50">{u.rank_name || ''} · Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP</div>
+
       <div className="flex gap-2 mt-2">
         <input value={delta} onChange={(e) => setDelta(e.target.value.replace(/[^0-9]/g, ''))}
           placeholder="XP amount" inputMode="numeric"
           className="flex-1 bg-black/40 border border-gold/20 rounded-xl px-2 py-1 text-sm outline-none" />
         <Btn gold onClick={() => adjust(+1)}>+XP</Btn>
         <Btn onClick={() => adjust(-1)}>−XP</Btn>
-        <Btn className="!bg-rose-600/70" onClick={ban}>{u.status === 'banned' ? 'Unban' : 'Ban'}</Btn>
       </div>
+      <div className="grid grid-cols-2 gap-2 mt-2">
+        <Btn className="!bg-rose-600/70" onClick={ban}>{u.status === 'banned' ? 'Unban' : 'Ban'}</Btn>
+        <Btn className="!bg-rose-700/80" onClick={() => { setResetOpen(true); setConfirm('') }}>Reset Account</Btn>
+      </div>
+
+      {resetOpen && (
+        <div onClick={() => setResetOpen(false)}
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6 fade-in">
+          <div onClick={(e) => e.stopPropagation()} className="card max-w-sm w-full"
+            style={{ borderColor: 'rgba(244,63,94,0.6)' }}>
+            <div className="text-3xl text-center">⚠</div>
+            <div className="font-extrabold text-rose-400 text-center text-lg">Reset Account</div>
+            <div className="text-sm text-white/70 mt-2 text-center">
+              This will <b>permanently reset</b> @{u.username || u.id}'s game progress
+              (XP, level, rank, upgrades, tasks, missions, quiz, puzzles, community, streak).
+              The account record is kept.
+            </div>
+            <div className="text-[12px] text-white/50 mt-3">Type <b className="text-rose-300">RESET</b> to confirm:</div>
+            <input value={confirm} autoFocus onChange={(e) => setConfirm(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && doReset()}
+              className="w-full mt-1 bg-black/40 border border-rose-500/40 rounded-xl px-3 py-2 text-sm outline-none text-center" />
+            <div className="grid grid-cols-2 gap-2 mt-3">
+              <Btn onClick={() => setResetOpen(false)}>Cancel</Btn>
+              <Btn className="!bg-rose-600" disabled={busy || confirm !== 'RESET'} onClick={doReset}>
+                {busy ? 'Resetting…' : 'Reset'}
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
@@ -372,17 +419,12 @@ function PuzzleForm({ initial, onDone, onCancel, flash }) {
       </Card>
 
       <Card className="space-y-2">
-        <div className="text-[11px] text-gold font-bold">🎬 Video clue (users get hints ONLY here)</div>
+        <div className="text-[11px] text-gold font-bold">🎬 Video clue (users get hints ONLY by watching these)</div>
         {field('YouTube video URL', 'youtube_url', 'text', 'https://www.youtube.com/watch?v=…')}
         {field('TikTok video URL', 'tiktok_url', 'text', 'https://www.tiktok.com/@zeliontech_zev/video/…')}
-        <div className="grid grid-cols-2 gap-2">
-          {field('Hidden clue timestamp', 'hidden_clue_timestamp', 'text', '00:07')}
-          <label className="flex items-end gap-2 pb-2">
-            <input type="checkbox" checked={f.clue_visible} onChange={set('clue_visible')} />
-            <span className="text-[11px] text-white/60">Show timestamp to users</span>
-          </label>
-        </div>
+        {field('Hidden clue timestamp (admin-only)', 'hidden_clue_timestamp', 'text', '00:07')}
         {area('Hidden clue placement (admin-only)', 'hidden_clue_description', 'White-on-black frame flashes VERIFIED at ~0.4s')}
+        <div className="text-[10px] text-white/40">Timestamp &amp; placement are NEVER shown to users — they appear only here.</div>
       </Card>
 
       <Card className="space-y-2">

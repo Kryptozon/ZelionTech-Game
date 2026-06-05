@@ -102,16 +102,12 @@ export default function Intelligence({ refresh, flash }) {
         </div>
         {puzzle.released_hints > 0 && (
           <div className="mt-2 text-[12px] text-gold">
-            🔔 {puzzle.released_hints} new hint{puzzle.released_hints > 1 ? 's' : ''} released — watch YouTube / TikTok to decode.
+            🔔 New hint video released — watch YouTube / TikTok to decode.
           </div>
         )}
-        {/* If the admin chose to reveal the clue timestamp */}
-        {puzzle.clue_timestamp && (
-          <div className="mt-2 text-[12px] text-white/70">⏱ Clue at <b>{puzzle.clue_timestamp}</b>{puzzle.clue_description ? ` — ${puzzle.clue_description}` : ''}</div>
-        )}
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <Btn onClick={() => openLink(puzzle.youtube_url || YT_URL)}>📺 YouTube Hint {puzzle.youtube_posted ? '🟢' : ''}</Btn>
-          <Btn onClick={() => openLink(puzzle.tiktok_url || TT_URL)}>🎵 TikTok Hint</Btn>
+          <Btn onClick={() => openLink(puzzle.youtube_url || YT_URL)}>📺 Watch YouTube Hint</Btn>
+          <Btn onClick={() => openLink(puzzle.tiktok_url || TT_URL)}>🎵 Watch TikTok Hint</Btn>
         </div>
       </Card>
 
