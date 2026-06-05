@@ -5,22 +5,13 @@ import { Card, Btn, Chip, Spinner, Logo } from '../ui'
 export default function Admin({ me, admin, flash }) {
   // The Admin tab is visible to ALL users, but access is gated server-side.
   // admin = /api/admin/me => { is_admin, id, authed }
-  const [authed, setAuthed] = useState(!!admin?.authed)
+  // Access if EITHER the owner Telegram ID is detected OR a valid password token exists.
+  const [authed, setAuthed] = useState(!!(admin?.is_admin || admin?.authed))
   const [tab, setTab] = useState('puzzles')
 
-  // 1) Not the super-admin Telegram ID -> hard "Restricted Area" (server returns 403 too).
-  if (!admin?.is_admin) {
-    return (
-      <Card className="text-center py-10">
-        <div className="text-5xl">🔒</div>
-        <div className="font-extrabold mt-3 text-rose-400 text-lg">Restricted Area</div>
-        <div className="text-sm text-white/50 mt-1">You do not have permission to access this dashboard.</div>
-      </Card>
-    )
-  }
-
-  // 2) Correct Telegram ID but no valid password token yet -> password prompt.
-  if (!authed) return <PasswordGate onPass={() => setAuthed(true)} flash={flash} />
+  // Owner ID detected, or no password yet -> show the Admin Login screen.
+  // (Owner is auto-authed above; everyone else falls back to the password.)
+  if (!authed) return <AdminLogin id={admin?.id ?? me?.id} onPass={() => setAuthed(true)} flash={flash} />
 
   return (
     <div className="space-y-4">
@@ -45,14 +36,14 @@ export default function Admin({ me, admin, flash }) {
   )
 }
 
-function PasswordGate({ onPass, flash }) {
+function AdminLogin({ id, onPass, flash }) {
   const [pw, setPw] = useState('')
   const [busy, setBusy] = useState(false)
   const submit = async () => {
     if (!pw) return
     setBusy(true)
     try {
-      const r = await api.adminLogin(pw)   // server verifies hash + Telegram ID
+      const r = await api.adminLogin(pw)   // server verifies the password hash
       adminToken.set(r.token)
       flash('Access granted ✅')
       onPass()
@@ -63,14 +54,16 @@ function PasswordGate({ onPass, flash }) {
   return (
     <Card className="text-center py-8">
       <div className="text-4xl">🛡</div>
-      <div className="font-extrabold mt-2">Admin Authentication</div>
-      <div className="text-xs text-white/50 mt-1">Enter the admin password to unlock the dashboard.</div>
+      <div className="font-extrabold mt-2 text-lg">Admin Login</div>
+      <div className="text-xs text-white/50 mt-2">Telegram ID detected:</div>
+      <div className="font-mono text-gold text-sm">{id ?? 'detecting…'}</div>
+      <div className="text-xs text-white/50 mt-3">Enter Admin Password</div>
       <input type="password" value={pw} autoFocus
         onChange={(e) => setPw(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
-        placeholder="Password"
-        className="w-full mt-4 bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none text-center" />
-      <Btn gold className="w-full mt-3" disabled={busy} onClick={submit}>{busy ? 'Verifying…' : 'Unlock'}</Btn>
+        placeholder="Admin Password"
+        className="w-full mt-2 bg-black/40 border border-gold/20 rounded-xl px-3 py-2 text-sm outline-none text-center" />
+      <Btn gold className="w-full mt-3" disabled={busy} onClick={submit}>{busy ? 'Verifying…' : 'Unlock Dashboard'}</Btn>
     </Card>
   )
 }

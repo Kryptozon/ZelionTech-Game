@@ -37,16 +37,16 @@ def authed(handler):
 
 
 def admin_only(handler):
-    """Requires BOTH: Telegram ID in ADMIN_IDS AND a valid admin session token
-    (issued by /api/admin/login after the password check). Server-side only."""
+    """Grants access if EITHER is true (server-side):
+      1) Telegram ID is in ADMIN_IDS (the owner), OR
+      2) a valid admin session token is present (issued by /api/admin/login
+         after the password check — the fallback path)."""
     async def inner(request):
         uid = request["user"]["id"]
-        if not settings.is_admin(uid):
-            return web.json_response({"error": "forbidden"}, status=403)
         token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
-        if not verify_admin_token(token, uid):
-            return web.json_response({"error": "admin_auth_required"}, status=403)
-        return await handler(request)
+        if settings.is_admin(uid) or verify_admin_token(token, uid):
+            return await handler(request)
+        return web.json_response({"error": "admin_auth_required"}, status=403)
     return inner
 
 
@@ -348,24 +348,47 @@ async def quiz_status(request):
 # ============================================================
 @authed
 async def admin_me(request):
-    """Authed (not admin-gated): tells the client whether THIS user is the admin
-    and whether the current admin token (if any) is still valid."""
+    """Authed (not admin-gated): tells the client whether THIS user is the owner
+    and whether they currently have dashboard access (owner OR valid password token)."""
     uid = request["user"]["id"]
     token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
-    return web.json_response({"is_admin": settings.is_admin(uid), "id": uid,
-                              "authed": settings.is_admin(uid) and verify_admin_token(token, uid)})
+    is_admin = settings.is_admin(uid)
+    return web.json_response({"is_admin": is_admin, "id": uid,
+                              # Owner gets in with no password; others via the token.
+                              "authed": is_admin or verify_admin_token(token, uid)})
 
 
 @authed
 async def admin_login(request):
-    """Verify the super-admin password server-side; return a signed session token."""
+    """Password fallback: a correct admin password grants a signed session token,
+    even if the Telegram ID isn't recognised (owner can always get in)."""
     uid = request["user"]["id"]
-    if not settings.is_admin(uid):
-        return web.json_response({"error": "forbidden"}, status=403)
     body = await request.json() if request.can_read_body else {}
     if not settings.check_admin_password(body.get("password", "")):
         return web.json_response({"error": "wrong_password"}, status=403)
     return web.json_response({"token": make_admin_token(uid), "ttl": 12 * 3600})
+
+
+@authed
+async def admin_debug(request):
+    """TEMP diagnostics (no secrets). Enabled only when ADMIN_DEBUG=true."""
+    if not settings.ADMIN_DEBUG:
+        return web.json_response({"error": "not_found"}, status=404)
+    uid = request["user"]["id"]
+    token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
+    is_admin = settings.is_admin(uid)
+    token_ok = verify_admin_token(token, uid)
+    return web.json_response({
+        "telegram_id": uid,
+        "telegram_id_type": type(uid).__name__,
+        "admin_ids_loaded": settings.ADMIN_IDS,
+        "is_admin": is_admin,
+        "token_valid": token_ok,
+        "auth_source": "telegram_id" if is_admin else ("password_token" if token_ok else "denied"),
+        "denied_reason": None if (is_admin or token_ok)
+                         else ("ADMIN_IDS is empty — env var not loaded" if not settings.ADMIN_IDS
+                               else "telegram_id not in ADMIN_IDS and no valid password token"),
+    })
 
 
 @authed
@@ -846,6 +869,7 @@ def setup_api(app: web.Application):
     r.add_get("/api/group/health", group_health_ep)
     # admin — identity + login + user search
     r.add_get("/api/admin/me", admin_me)
+    r.add_get("/api/admin/debug", admin_debug)
     r.add_post("/api/admin/login", admin_login)
     r.add_get("/api/admin/users", admin_users)
     # admin — proof moderation dashboard

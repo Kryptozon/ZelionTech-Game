@@ -7,13 +7,25 @@ load_dotenv()
 
 
 def _ints(raw: str):
-    return [int(x) for x in raw.replace(" ", "").split(",") if x.strip()]
+    out = []
+    for x in (raw or "").replace(" ", "").split(","):
+        x = x.strip()
+        if not x:
+            continue
+        try:
+            out.append(int(x))
+        except ValueError:
+            pass  # ignore non-numeric junk instead of crashing the whole config
+    return out
 
 
 class Settings:
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     BOT_USERNAME = os.getenv("BOT_USERNAME", "ZelionReactorBot")
     ADMIN_IDS = _ints(os.getenv("ADMIN_IDS", ""))
+    # Temporary: exposes GET /api/admin/debug (no secrets). Set ADMIN_DEBUG=true on Render
+    # to diagnose admin access, then remove it.
+    ADMIN_DEBUG = os.getenv("ADMIN_DEBUG", "false").lower() == "true"
     # Super-admin password — stored only as a hash, verified server-side.
     ADMIN_PASSWORD_HASH = (os.getenv("ADMIN_PASSWORD_HASH")
                            or hashlib.sha256(os.getenv("ADMIN_PASSWORD", "ZelioNK76131393@13").encode()).hexdigest())
@@ -88,8 +100,9 @@ class Settings:
     AI_API_KEY = os.getenv("AI_API_KEY", "")                        # empty => grounded fallback generator
     AI_MODEL = os.getenv("AI_MODEL", "gpt-4o-mini")
 
-    def is_admin(self, user_id: int) -> bool:
-        return user_id in self.ADMIN_IDS
+    def is_admin(self, user_id) -> bool:
+        # String-compare so "8883747941" and 8883747941 both match (no type drift).
+        return str(user_id) in {str(a) for a in self.ADMIN_IDS}
 
     def check_admin_password(self, password: str) -> bool:
         return hmac.compare_digest(
