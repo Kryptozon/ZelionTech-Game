@@ -58,8 +58,8 @@ class Settings:
     GROUP_MSG_DAILY_CAP = int(os.getenv("GROUP_MSG_DAILY_CAP", "20"))
     GROUP_MSG_MIN_LEN = int(os.getenv("GROUP_MSG_MIN_LEN", "10"))
     GROUP_FLOOD_SEC = int(os.getenv("GROUP_FLOOD_SEC", "60"))   # 1 rewarded msg / 60s
-    GROUP_REPLY_XP = int(os.getenv("GROUP_REPLY_XP", "4"))
-    GROUP_DISCUSSION_XP = int(os.getenv("GROUP_DISCUSSION_XP", "15"))
+    GROUP_REPLY_XP = int(os.getenv("GROUP_REPLY_XP", "2"))
+    GROUP_DISCUSSION_XP = int(os.getenv("GROUP_DISCUSSION_XP", "5"))
     GROUP_REACT_XP = int(os.getenv("GROUP_REACT_XP", "2"))
     GROUP_REACT_DAILY_CAP = int(os.getenv("GROUP_REACT_DAILY_CAP", "10"))
 

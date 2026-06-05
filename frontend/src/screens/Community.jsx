@@ -69,11 +69,20 @@ export default function Community({ refresh, flash }) {
         <Btn onClick={() => openLink(channelUrl)}>📣 Open Channel</Btn>
       </div>
 
-      {/* Always-visible reward rule */}
+      {/* Always-visible "How to earn ZLN-XP" panel */}
       <Card className="glow">
-        <div className="text-sm font-bold text-gold">⚡ {RULE_TEXT}</div>
-        <div className="text-[11px] text-white/45 mt-1">
-          Valid = min {d.msg_min_len || 10} chars · not emoji-only · no spam · max 1 / 60s · daily cap.
+        <div className="text-sm font-bold text-gold">⚡ How to earn ZLN-XP</div>
+        <div className="text-[12px] text-white/70 mt-2 grid grid-cols-1 gap-1">
+          <div>💬 Valid group message — <b>+1</b></div>
+          <div>↩️ Reply to a member — <b>+2</b></div>
+          <div>🗣️ Daily discussion answer — <b>+5</b></div>
+          <div>🧠 Quiz correct — <b>+5 to +35</b> (wrong −1)</div>
+          <div>🧩 Puzzle solved — <b>+20 to +250</b></div>
+          <div>📡 Social: channel <b>+30</b> · group <b>+35</b> · follow <b>+50</b></div>
+          <div>🎯 Reactor missions, daily claim & referrals</div>
+        </div>
+        <div className="text-[11px] text-white/40 mt-2">
+          Valid message = min {d.msg_min_len || 10} chars · not emoji-only · no spam · max 1 / 60s · daily cap.
         </div>
       </Card>
 
@@ -146,11 +155,15 @@ export default function Community({ refresh, flash }) {
           className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-6 fade-in">
           <div onClick={(e) => e.stopPropagation()} className="card max-w-sm w-full text-center">
             <div className="flex justify-center mb-2"><Logo size={48} /></div>
-            <div className="font-extrabold text-gold text-lg">Earn in the Community</div>
-            <div className="text-sm text-white/70 mt-2">{RULE_TEXT}</div>
+            <div className="font-extrabold text-gold text-lg">How to earn ZLN-XP</div>
+            <div className="text-[12px] text-white/75 mt-2 text-left space-y-1">
+              <div>💬 Valid message <b>+1</b> · ↩️ reply <b>+2</b> · 🗣️ discussion <b>+5</b></div>
+              <div>🧠 Quiz correct <b>+5–35</b> (wrong −1) · 🧩 puzzle <b>+20–250</b></div>
+              <div>📡 Channel <b>+30</b> · group <b>+35</b> · follow <b>+50</b></div>
+              <div>🎯 Reactor missions, daily claim & referrals</div>
+            </div>
             <div className="text-[11px] text-white/45 mt-2">
-              Join Zelion Global, then chat meaningfully (min {d.msg_min_len || 10} chars, no spam,
-              max 1 reward / 60s).
+              Join Zelion Global, then chat meaningfully (min {d.msg_min_len || 10} chars, no spam, max 1 / 60s).
             </div>
             <div className="grid grid-cols-2 gap-2 mt-4">
               <Btn gold onClick={() => { openLink(groupUrl); dismissInfo() }}>Join Group</Btn>

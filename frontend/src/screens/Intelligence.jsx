@@ -78,13 +78,27 @@ export default function Intelligence({ refresh, flash }) {
         <div className="label">🔎 Need a hint?</div>
         <div className="text-[12px] text-white/60 mt-1">{puzzle.youtube_instruction}</div>
         <div className="text-[12px] text-white/60">{puzzle.telegram_instruction}</div>
+        {/* Admin-released hints only (servers never leak unreleased hints/answers) */}
+        {puzzle.released_hints?.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {puzzle.released_hints.map((h, i) => (
+              <div key={i} className="text-[12px] text-gold">💡 Hint {i + 1}: {h}</div>
+            ))}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <Btn onClick={() => openLink(YT_URL)}>📺 YouTube</Btn>
-          <Btn onClick={() => openLink(CHANNEL_URL)}>📢 Telegram</Btn>
+          <Btn onClick={() => openLink(YT_URL)}>📺 YouTube {puzzle.youtube_posted ? '🟢' : ''}</Btn>
+          <Btn onClick={() => openLink(CHANNEL_URL)}>📢 Telegram {puzzle.telegram_posted ? '🟢' : ''}</Btn>
         </div>
       </Card>
 
-      {solved ? (
+      {puzzle.closed ? (
+        <Card className="text-center" style={{ borderColor: 'rgba(244,63,94,0.5)' }}>
+          <div className="text-3xl">⚠</div>
+          <div className="font-extrabold text-rose-400 mt-1">Puzzle Closed Forever</div>
+          <div className="text-sm text-white/50">This mystery has ended — no more submissions.</div>
+        </Card>
+      ) : solved ? (
         <Card className="text-center">
           <div className="text-3xl">✅</div>
           <div className="font-bold text-emerald-400 mt-1">Solved!</div>

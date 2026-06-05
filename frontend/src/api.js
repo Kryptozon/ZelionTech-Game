@@ -74,6 +74,13 @@ export const api = {
   puzzlesLeaderboard: (period = 'week') => req('/puzzles/leaderboard?period=' + period),
   adminPuzzles: (difficulty) => req('/admin/puzzles' + (difficulty ? '?difficulty=' + difficulty : '')),
   puzzleHints: (id) => req(`/admin/puzzles/${id}/hints`),
+  puzzleScript: (id) => req(`/admin/puzzles/${id}/youtube-script`),
+  puzzleTelegram: (id) => req(`/admin/puzzles/${id}/telegram-post`),
+  puzzleActivate: (id) => req(`/admin/puzzles/${id}/activate`, { method: 'POST' }),
+  puzzleClose: (id) => req(`/admin/puzzles/${id}/deactivate`, { method: 'POST' }),
+  puzzleSkip: (id) => req(`/admin/puzzles/${id}/skip`, { method: 'POST' }),
+  puzzleReleaseHint: (id, n) => req(`/admin/puzzles/${id}/release-hint`, { method: 'POST', body: JSON.stringify({ n }) }),
+  puzzleMarkPosted: (id, platform) => req(`/admin/puzzles/${id}/mark-posted/${platform}`, { method: 'POST' }),
 
   // community
   community: () => req('/community'),

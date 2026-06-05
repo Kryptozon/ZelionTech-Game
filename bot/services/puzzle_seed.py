@@ -101,6 +101,7 @@ def _wrap(answer, difficulty, category, title, question, explanation,
     yt_ts = f"0:{(hash(title) % 50) + 10:02d}"
     return {
         "slug": _slug(title, ans), "title": title, "question": question, "answer": ans,
+        "accepted_variations": ans.lower(), "source_topic": category,
         "difficulty": difficulty, "reward": REWARD[difficulty], "penalty": PENALTY[difficulty],
         "category": category,
         "hint1": "The answer is a core Zelion ecosystem term.",
@@ -250,12 +251,14 @@ async def seed(pool, write_files=True):
     async with pool.acquire() as con:
         for p in puzzles:
             pid = await con.fetchval(
-                """INSERT INTO puzzles(slug,title,question,answer,difficulty,reward,penalty,category,
-                       hint1,hint2,hint3,source,youtube_instruction,telegram_instruction,explanation,active)
-                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,true)
+                """INSERT INTO puzzles(slug,title,question,answer,accepted_variations,source_topic,
+                       difficulty,reward,penalty,category,hint1,hint2,hint3,source,
+                       youtube_instruction,telegram_instruction,explanation,active,status)
+                   VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,true,'active')
                    ON CONFLICT (slug) DO NOTHING RETURNING id""",
-                p["slug"], p["title"], p["question"], p["answer"], p["difficulty"], p["reward"],
-                p["penalty"], p["category"], p["hint1"], p["hint2"], p["hint3"], p["source"],
+                p["slug"], p["title"], p["question"], p["answer"], p["accepted_variations"],
+                p["source_topic"], p["difficulty"], p["reward"], p["penalty"], p["category"],
+                p["hint1"], p["hint2"], p["hint3"], p["source"],
                 p["youtube_instruction"], p["telegram_instruction"], p["explanation"])
             if pid:
                 inserted += 1

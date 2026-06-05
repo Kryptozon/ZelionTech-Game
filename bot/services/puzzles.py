@@ -16,18 +16,29 @@ def _today():
     return dt.date.today()
 
 
+def _released_hints(row):
+    n = row.get("released_hints", 0) if isinstance(row, dict) else (row["released_hints"] or 0)
+    hints = [row["hint1"], row["hint2"], row["hint3"]]
+    return [h for h in hints[:n] if h]
+
+
 def _public(row, solved=False):
+    closed = (row["status"] in ("closed", "skipped")) if "status" in row else False
     d = {
         "id": row["id"], "title": row["title"], "question": row["question"],
         "difficulty": row["difficulty"], "reward": row["reward"], "penalty": row["penalty"],
         "category": row["category"], "source": row["source"],
         "youtube_instruction": row["youtube_instruction"],
         "telegram_instruction": row["telegram_instruction"],
-        "solved": solved,
+        "solved": solved, "closed": closed,
+        # Admin may "release" hints; only released ones are revealed to players.
+        "released_hints": _released_hints(row),
+        "youtube_posted": bool(row["youtube_posted"]) if "youtube_posted" in row else False,
+        "telegram_posted": bool(row["telegram_posted"]) if "telegram_posted" in row else False,
     }
     if solved:
         d["explanation"] = row["explanation"]
-    return d  # NOTE: answer / hints are never included
+    return d  # NOTE: answer / unreleased hints / scripts are never included
 
 
 async def _pick_daily(con, difficulties=("easy", "medium", "hard"), table_date=None):
@@ -98,7 +109,10 @@ async def answer(pool, redis, user_id, puzzle_id, text):
         cd = await redis.ttl(f"pzcd:{user_id}:{puzzle_id}")
         return {"error": "cooldown", "cooldown_seconds": cd}
 
-    correct = (_norm(text) == _norm(row["answer"]))
+    accepted = {_norm(row["answer"])}
+    if row["accepted_variations"]:
+        accepted |= {_norm(v) for v in row["accepted_variations"].split(",") if v.strip()}
+    correct = _norm(text) in accepted
     async with pool.acquire() as con:
         await con.execute(
             "INSERT INTO puzzle_attempts(user_id, puzzle_id, answer_text, correct, awarded) "
@@ -165,7 +179,29 @@ async def admin_list(pool, difficulty=None, limit=300):
 
 async def set_active(pool, puzzle_id, active):
     async with pool.acquire() as con:
-        await con.execute("UPDATE puzzles SET active=$1 WHERE id=$2", active, puzzle_id)
+        await con.execute("UPDATE puzzles SET active=$1, status=$2 WHERE id=$3",
+                          active, "active" if active else "closed", puzzle_id)
+
+
+async def set_status(pool, puzzle_id, status):
+    """status: active | closed | skipped. Closed/skipped puzzles are permanently removed
+    from rotation (scarcity — no retroactive rewards)."""
+    active = (status == "active")
+    async with pool.acquire() as con:
+        await con.execute("UPDATE puzzles SET status=$1, active=$2 WHERE id=$3", status, active, puzzle_id)
+
+
+async def release_hint(pool, puzzle_id, n):
+    n = max(0, min(3, int(n)))
+    async with pool.acquire() as con:
+        await con.execute("UPDATE puzzles SET released_hints=GREATEST(released_hints,$1) WHERE id=$2",
+                          n, puzzle_id)
+
+
+async def mark_posted(pool, puzzle_id, platform):
+    col = "youtube_posted" if platform == "youtube" else "telegram_posted"
+    async with pool.acquire() as con:
+        await con.execute(f"UPDATE puzzles SET {col}=true WHERE id=$1", puzzle_id)
 
 
 async def get_hints(pool, puzzle_id):

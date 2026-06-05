@@ -651,21 +651,51 @@ async def admin_puzzles(request):
     rows = await pzsvc.admin_list(request.app["pool"], request.query.get("difficulty"))
     return web.json_response({"puzzles": [
         {"id": r["id"], "title": r["title"], "difficulty": r["difficulty"], "category": r["category"],
-         "answer": r["answer"], "reward": r["reward"], "active": r["active"]} for r in rows]})
+         "question": r["question"], "answer": r["answer"],
+         "accepted_variations": r.get("accepted_variations"), "explanation": r["explanation"],
+         "source_topic": r.get("source_topic"), "reward": r["reward"],
+         "status": r.get("status", "active"), "active": r["active"],
+         "hint1": r["hint1"], "hint2": r["hint2"], "hint3": r["hint3"],
+         "released_hints": r.get("released_hints", 0),
+         "youtube_posted": r.get("youtube_posted", False),
+         "telegram_posted": r.get("telegram_posted", False)} for r in rows]})
 
 
 @authed
 @admin_only
 async def admin_puzzle_activate(request):
-    await pzsvc.set_active(request.app["pool"], int(request.match_info["id"]), True)
+    await pzsvc.set_status(request.app["pool"], int(request.match_info["id"]), "active")
     return web.json_response({"result": "activated"})
 
 
 @authed
 @admin_only
 async def admin_puzzle_deactivate(request):
-    await pzsvc.set_active(request.app["pool"], int(request.match_info["id"]), False)
-    return web.json_response({"result": "deactivated"})
+    await pzsvc.set_status(request.app["pool"], int(request.match_info["id"]), "closed")
+    return web.json_response({"result": "closed"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_skip(request):
+    await pzsvc.set_status(request.app["pool"], int(request.match_info["id"]), "skipped")
+    return web.json_response({"result": "skipped"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_release_hint(request):
+    body = await request.json() if request.can_read_body else {}
+    await pzsvc.release_hint(request.app["pool"], int(request.match_info["id"]), int(body.get("n", 1)))
+    return web.json_response({"result": "released"})
+
+
+@authed
+@admin_only
+async def admin_puzzle_mark_posted(request):
+    plat = request.match_info["platform"]
+    await pzsvc.mark_posted(request.app["pool"], int(request.match_info["id"]), plat)
+    return web.json_response({"result": "marked", "platform": plat})
 
 
 @authed
@@ -726,6 +756,9 @@ def setup_api(app: web.Application):
     r.add_get("/api/admin/puzzles", admin_puzzles)
     r.add_post("/api/admin/puzzles/{id}/activate", admin_puzzle_activate)
     r.add_post("/api/admin/puzzles/{id}/deactivate", admin_puzzle_deactivate)
+    r.add_post("/api/admin/puzzles/{id}/skip", admin_puzzle_skip)
+    r.add_post("/api/admin/puzzles/{id}/release-hint", admin_puzzle_release_hint)
+    r.add_post("/api/admin/puzzles/{id}/mark-posted/{platform}", admin_puzzle_mark_posted)
     r.add_get("/api/admin/puzzles/{id}/hints", admin_puzzle_hints)
     r.add_get("/api/admin/puzzles/{id}/youtube-script", admin_puzzle_youtube)
     r.add_get("/api/admin/puzzles/{id}/telegram-post", admin_puzzle_telegram)

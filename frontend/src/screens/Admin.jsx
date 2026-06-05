@@ -32,19 +32,20 @@ export default function Admin({ me, flash }) {
   )
 }
 
+function copy(text, flash) {
+  try { navigator.clipboard.writeText(text || ''); flash('Copied ✓') } catch (_) { flash('Copy failed', 'red') }
+}
+
 function Puzzles({ flash }) {
   const [rows, setRows] = useState(null)
   const [diff, setDiff] = useState('')
   const [open, setOpen] = useState(null)
   const load = () => api.adminPuzzles(diff).then((d) => setRows(d.puzzles)).catch((e) => flash(e.message, 'red'))
   useEffect(() => { load() }, [diff])
-  const setActive = async (id, active) => {
-    try {
-      await fetch(`/api/admin/puzzles/${id}/${active ? 'activate' : 'deactivate'}`, {
-        method: 'POST', headers: { 'X-Init-Data': window.Telegram?.WebApp?.initData || '' } })
-      flash(active ? 'Activated' : 'Deactivated'); load()
-    } catch (e) { flash(e.message, 'red') }
-  }
+
+  const act = async (fn, ok) => { try { await fn(); flash(ok); load() } catch (e) { flash(e.message, 'red') } }
+  const statusTone = { active: 'green', closed: 'red', skipped: 'gray' }
+
   if (!rows) return <Spinner />
   return (
     <div className="space-y-3">
@@ -53,39 +54,55 @@ function Puzzles({ flash }) {
         <option value="">All difficulties</option>
         {['easy', 'medium', 'hard', 'legendary'].map((d) => <option key={d} value={d}>{d}</option>)}
       </select>
-      <div className="text-[11px] text-white/40">{rows.length} puzzles · answers are admin-only</div>
-      {rows.slice(0, 60).map((p) => (
+      <div className="text-[11px] text-white/40">{rows.length} puzzles · admin-only (answers/hints never sent to users)</div>
+      {rows.slice(0, 80).map((p) => (
         <Card key={p.id}>
           <div className="flex items-center gap-2">
             <Chip tone="gray">{p.difficulty}</Chip>
-            <div className="flex-1 text-sm font-semibold truncate">{p.title}</div>
+            <Chip tone={statusTone[p.status] || 'gray'}>{p.status}</Chip>
+            <div className="flex-1 text-sm font-semibold truncate">#{p.id} {p.title}</div>
             <Chip tone="green">+{p.reward}</Chip>
           </div>
-          <div className="text-[11px] text-white/45 mt-1">#{p.id} · {p.category}</div>
-          <div className="text-xs text-gold mt-1">🔑 {p.answer}</div>
+          <div className="text-[11px] text-white/45 mt-1">{p.category} · {p.source_topic}</div>
+          <div className="text-xs text-gold mt-1">🔑 {p.answer}
+            {p.accepted_variations && <span className="text-white/40"> · also: {p.accepted_variations}</span>}</div>
+          <div className="text-[11px] text-white/50 mt-1">Released hints: {p.released_hints}/3 ·
+            YT {p.youtube_posted ? '✅' : '⬜'} · TG {p.telegram_posted ? '✅' : '⬜'}</div>
           <div className="flex gap-2 mt-2">
-            <Btn className="flex-1" onClick={() => setActive(p.id, !p.active)}>{p.active ? 'Deactivate' : 'Activate'}</Btn>
-            <Btn className="flex-1" onClick={() => setOpen(open === p.id ? null : p.id)}>Hints/Script</Btn>
+            {p.status === 'active'
+              ? <Btn className="flex-1" onClick={() => act(() => api.puzzleClose(p.id), 'Closed')}>Close</Btn>
+              : <Btn gold className="flex-1" onClick={() => act(() => api.puzzleActivate(p.id), 'Activated')}>Release</Btn>}
+            <Btn className="flex-1 !bg-rose-600/70" onClick={() => act(() => api.puzzleSkip(p.id), 'Skipped')}>Skip</Btn>
+            <Btn className="flex-1" onClick={() => setOpen(open === p.id ? null : p.id)}>{open === p.id ? '▲' : 'More'}</Btn>
           </div>
-          {open === p.id && <PuzzleDetail id={p.id} flash={flash} />}
+          {open === p.id && (
+            <div className="mt-2 border-t border-white/10 pt-2 space-y-2">
+              <div className="text-[11px] text-white/60">Q: {p.question}</div>
+              <div className="text-[11px] text-white/60">Explain: {p.explanation}</div>
+              <div className="grid grid-cols-3 gap-1">
+                {[1, 2, 3].map((n) => (
+                  <Btn key={n} gold={p.released_hints >= n}
+                    onClick={() => act(() => api.puzzleReleaseHint(p.id, n), `Hint ${n} released`)}>
+                    Release H{n}
+                  </Btn>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <Btn onClick={() => copy(p.answer, flash)}>Copy Answer</Btn>
+                <Btn onClick={() => copy(p.hint1, flash)}>Copy Hint1</Btn>
+                <Btn onClick={() => copy(p.hint2, flash)}>Copy Hint2</Btn>
+                <Btn onClick={() => copy(p.hint3, flash)}>Copy Hint3</Btn>
+                <Btn onClick={async () => { try { const s = await api.puzzleScript(p.id); copy(s.youtube_script, flash) } catch (e) { flash(e.message, 'red') } }}>Copy Video Script</Btn>
+                <Btn onClick={async () => { try { const s = await api.puzzleTelegram(p.id); copy(s.telegram_post, flash) } catch (e) { flash(e.message, 'red') } }}>Copy TG Post</Btn>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <Btn gold={p.youtube_posted} onClick={() => act(() => api.puzzleMarkPosted(p.id, 'youtube'), 'Marked YT')}>Mark YT Posted</Btn>
+                <Btn gold={p.telegram_posted} onClick={() => act(() => api.puzzleMarkPosted(p.id, 'telegram'), 'Marked TG')}>Mark TG Posted</Btn>
+              </div>
+            </div>
+          )}
         </Card>
       ))}
-    </div>
-  )
-}
-
-function PuzzleDetail({ id, flash }) {
-  const [h, setH] = useState(null)
-  useEffect(() => { api.puzzleHints(id).then(setH).catch((e) => flash(e.message, 'red')) }, [id])
-  if (!h) return <Spinner />
-  return (
-    <div className="mt-2 text-[11px] text-white/60 space-y-1 border-t border-white/10 pt-2">
-      <div>Hint1: {h.daily_hint1}</div>
-      <div>Hint2: {h.daily_hint2}</div>
-      <div>Hint3: {h.daily_hint3}</div>
-      <div>YT timestamp: {h.youtube_timestamp}</div>
-      <div>TG post: {h.telegram_post_text}</div>
-      <div className="text-gold">Placement: {h.hidden_answer_placement}</div>
     </div>
   )
 }

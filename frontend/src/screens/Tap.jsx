@@ -45,7 +45,7 @@ export default function Tap({ me, refresh, flash, go }) {
       const r = await api.tap(taps, nonce)
       energy.current = r.energy
       setSt((s) => ({ ...s, ...r }))
-      if (r.daily_cap_reached) setCapModal(true)
+      if (r.hourly_cap_reached) setCapModal(true)
       if (r.message && (r.cooldown_seconds > 0)) { setSurge(false) }
       refresh()
     } catch (e) { /* keep playing */ } finally {
@@ -61,7 +61,7 @@ export default function Tap({ me, refresh, flash, go }) {
   const onTap = (e) => {
     if (!st) return
     // Still allow taps when capped/overheated/empty — animation only (server returns 0).
-    if (energy.current > 0 && !overheated && (st.daily_taps_remaining > 0)) {
+    if (energy.current > 0 && !overheated && (st.hourly_taps_remaining > 0)) {
       energy.current = Math.max(0, energy.current - 1)
       setSt((s) => ({ ...s, energy: energy.current }))
     }
@@ -73,7 +73,7 @@ export default function Tap({ me, refresh, flash, go }) {
     const x = rect ? pt.clientX - rect.left : 140
     const y = rect ? pt.clientY - rect.top : 140
     const id = ++floatId
-    const v = (overheated || st.daily_taps_remaining <= 0 || energy.current <= 0) ? 0 : st.points_per_tap
+    const v = (overheated || st.hourly_taps_remaining <= 0 || energy.current <= 0) ? 0 : st.points_per_tap
     setFloats((f) => [...f, { id, x, y, v }])
     setTimeout(() => setFloats((f) => f.filter((z) => z.id !== id)), 850)
   }
@@ -105,13 +105,16 @@ export default function Tap({ me, refresh, flash, go }) {
         <Progress value={lvlInto} max={lvlSpan} />
       </Card>
 
-      {/* Daily cap + overheat */}
+      {/* Hourly reactor capacity + overheat */}
       <div className="grid grid-cols-2 gap-3">
         <Card>
-          <div className="label">Daily taps left</div>
+          <div className="label">Hourly Reactor Capacity</div>
           <div className="text-lg font-extrabold text-gold">
-            {st.daily_taps_remaining}<span className="text-white/40 text-xs">/{st.daily_tap_cap}</span>
+            {st.hourly_taps_remaining}<span className="text-white/40 text-xs">/{st.hourly_tap_limit}</span>
           </div>
+          {st.hourly_taps_remaining <= 0 && (
+            <div className="text-[11px] text-rose-300 mt-0.5">Refill in {fmt(st.hourly_reset_seconds)}</div>
+          )}
         </Card>
         <Card>
           <div className="label">Reactor heat</div>
