@@ -41,15 +41,15 @@ export default function Leaderboard() {
                 )}
               </div>
             </div>
-            <span className="text-gold font-bold">{(r.score ?? 0).toLocaleString()} ZLN-XP</span>
+            <span className="text-gold font-bold">{(r.score ?? 0).toLocaleString()} <span className="text-[10px] text-white/40">Rank XP</span></span>
           </div>
         ))}
       </Card>
 
       <Card className="text-center">
-        <div className="label">Your standing</div>
+        <div className="label">Your standing · Leaderboard Score (Rank XP)</div>
         <div className="font-bold mt-1">
-          All-time #{data.my_rank || '—'} · This week {data.my_week || 0} ZLN-XP
+          All-time #{data.my_rank || '—'} · This week {data.my_week || 0} Rank XP
         </div>
         {(data.my_rank_name || data.my_level != null) && (
           <div className="text-xs text-white/50 mt-1">

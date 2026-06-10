@@ -70,18 +70,28 @@ function AdminLogin({ id, onPass, flash }) {
 }
 
 function UserRow({ u, flash, reload }) {
-  const [delta, setDelta] = useState('')
-  const [confirm, setConfirm] = useState('')   // '' = closed; otherwise holds typed text
+  const [gAmt, setGAmt] = useState('')
+  const [rAmt, setRAmt] = useState('')
+  const [confirm, setConfirm] = useState('')
   const [resetOpen, setResetOpen] = useState(false)
   const [busy, setBusy] = useState(false)
 
-  const adjust = async (sign) => {
-    const n = parseInt(delta, 10)
+  const adjustGame = async (sign) => {
+    const n = parseInt(gAmt, 10)
     if (!n || n <= 0) return flash('Enter a positive amount', 'red')
     try {
-      const r = await api.adminUserXp(u.id, sign * n)
-      flash(`✅ XP Updated → ${r.new_balance.toLocaleString()} (${r.rank_name} Lv.${r.level})`)
-      setDelta(''); reload && reload()
+      const r = await api.adminUserGameXp(u.id, sign * n)
+      flash(`✅ Game XP Updated → ${r.new_game_xp.toLocaleString()} (${r.rank_name} Lv.${r.level})`)
+      setGAmt(''); reload && reload()
+    } catch (e) { flash(e.message, 'red') }
+  }
+  const adjustRanking = async (sign) => {
+    const n = parseInt(rAmt, 10)
+    if (!n || n <= 0) return flash('Enter a positive amount', 'red')
+    try {
+      const r = await api.adminUserRankingXp(u.id, sign * n)
+      flash(`✅ Ranking XP Updated → ${r.new_ranking_xp.toLocaleString()} Rank XP`)
+      setRAmt(''); reload && reload()
     } catch (e) { flash(e.message, 'red') }
   }
   const ban = async () => {
@@ -107,16 +117,24 @@ function UserRow({ u, flash, reload }) {
           {u.status === 'banned' ? 'banned' : (u.shadow_banned ? 'shadow' : 'active')}
         </Chip>
       </div>
-      {/* Telegram ID · Username · Rank · Level · XP · Status */}
-      <div className="text-[11px] text-white/50 mt-1">ID {u.id} · @{u.username || u.first_name || '—'}</div>
-      <div className="text-[11px] text-white/50">{u.rank_name || ''} · Lv.{u.level} · {Number(u.points).toLocaleString()} ZLN-XP</div>
+      {/* Telegram ID · Username · Rank · Level · Game XP · Ranking XP · Status */}
+      <div className="text-[11px] text-white/50 mt-1">ID {u.id} · @{u.username || u.first_name || '—'} · {u.rank_name || ''} Lv.{u.level}</div>
+      <div className="text-[12px] text-gold mt-1">Game XP: {Number(u.points).toLocaleString()} ZLN-XP</div>
+      <div className="text-[12px] text-sky-300">Ranking XP: {Number(u.ranking_xp ?? u.points).toLocaleString()} Rank XP</div>
 
-      <div className="flex gap-2 mt-2">
-        <input value={delta} onChange={(e) => setDelta(e.target.value.replace(/[^0-9]/g, ''))}
-          placeholder="XP amount" inputMode="numeric"
+      <div className="flex gap-2 mt-2 items-center">
+        <input value={gAmt} onChange={(e) => setGAmt(e.target.value.replace(/[^0-9]/g, ''))}
+          placeholder="Game XP" inputMode="numeric"
           className="flex-1 bg-black/40 border border-gold/20 rounded-xl px-2 py-1 text-sm outline-none" />
-        <Btn gold onClick={() => adjust(+1)}>+XP</Btn>
-        <Btn onClick={() => adjust(-1)}>−XP</Btn>
+        <Btn gold onClick={() => adjustGame(+1)}>+ Game</Btn>
+        <Btn onClick={() => adjustGame(-1)}>− Game</Btn>
+      </div>
+      <div className="flex gap-2 mt-2 items-center">
+        <input value={rAmt} onChange={(e) => setRAmt(e.target.value.replace(/[^0-9]/g, ''))}
+          placeholder="Ranking XP" inputMode="numeric"
+          className="flex-1 bg-black/40 border border-sky-400/20 rounded-xl px-2 py-1 text-sm outline-none" />
+        <Btn className="!bg-sky-600/70" onClick={() => adjustRanking(+1)}>+ Rank</Btn>
+        <Btn className="!bg-sky-700/60" onClick={() => adjustRanking(-1)}>− Rank</Btn>
       </div>
       <div className="grid grid-cols-2 gap-2 mt-2">
         <Btn className="!bg-rose-600/70" onClick={ban}>{u.status === 'banned' ? 'Unban' : 'Ban'}</Btn>
@@ -176,25 +194,35 @@ function Users({ flash }) {
 
 function RanksAdmin({ flash }) {
   const [d, setD] = useState(null)
+  const [busy, setBusy] = useState(false)
   const load = () => api.adminRanking().then(setD).catch((e) => flash(e.message, 'red'))
   useEffect(() => { load() }, [])
+  const recalc = async () => {
+    setBusy(true)
+    try { const r = await api.adminRecalcRankings(); flash(`✅ Rankings recalculated (${r.users} users)`); load() }
+    catch (e) { flash(e.message, 'red') } finally { setBusy(false) }
+  }
   if (!d) return <Spinner />
   const medal = (i) => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`
+  const score = (u) => Number(u.ranking_xp ?? u.points)
   return (
     <div className="space-y-3">
+      <Btn gold className="w-full" disabled={busy} onClick={recalc}>
+        {busy ? 'Recalculating…' : '🔄 Recalculate Rankings'}
+      </Btn>
       <Card>
         <div className="text-sm font-bold">🏆 Top Operators</div>
-        <div className="text-[10px] text-white/40 mb-2">Live ranking by lifetime ZLN-XP. Tap a user in the Users tab to edit XP / ban.</div>
+        <div className="text-[10px] text-white/40 mb-2">Ranked by <b>Ranking XP</b>. Edit Game XP / Ranking XP in the Users tab.</div>
         {d.top.map((u, i) => (
           <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
             <div className="flex items-center gap-2 min-w-0">
               <span className="w-6 text-center">{medal(i)}</span>
               <div className="min-w-0">
                 <div className="font-semibold truncate">@{u.username || u.first_name || u.id}</div>
-                <div className="text-[10px] text-white/40">{u.rank_name} · Lv.{u.level} · ID {u.id}</div>
+                <div className="text-[10px] text-white/40">{u.rank_name} · Lv.{u.level} · ID {u.id} · Game {Number(u.points).toLocaleString()}</div>
               </div>
             </div>
-            <span className="text-gold font-bold text-sm">{Number(u.points).toLocaleString()}</span>
+            <span className="text-sky-300 font-bold text-sm">{score(u).toLocaleString()} <span className="text-[9px] text-white/40">Rank XP</span></span>
           </div>
         ))}
       </Card>
@@ -207,7 +235,7 @@ function RanksAdmin({ flash }) {
           <div key={u.id} className="flex items-center justify-between py-1.5 border-b border-white/5 last:border-0">
             <div className="min-w-0">
               <div className="font-semibold truncate">@{u.username || u.first_name || u.id}</div>
-              <div className="text-[10px] text-white/40">ID {u.id} · {Number(u.points).toLocaleString()} XP</div>
+              <div className="text-[10px] text-white/40">ID {u.id} · Game {Number(u.points).toLocaleString()} · Rank {score(u).toLocaleString()}</div>
             </div>
             <Chip tone={u.status === 'banned' ? 'red' : 'gray'}>{u.status === 'banned' ? 'banned' : 'shadow'}</Chip>
           </div>
@@ -215,7 +243,7 @@ function RanksAdmin({ flash }) {
       </Card>
 
       <div className="text-[10px] text-white/40 text-center">
-        Weekly leaderboard auto-resets every week (rolling window). Lifetime ranking is permanent.
+        Leaderboard ranks by Ranking XP. Weekly board auto-resets each week; lifetime ranking is permanent.
       </div>
     </div>
   )

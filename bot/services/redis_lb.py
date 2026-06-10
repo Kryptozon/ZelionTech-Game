@@ -6,13 +6,13 @@ WEEK = "lb:week"
 
 
 async def ensure_seed(pool, redis):
-    """On first boot, seed the all-time ZSET from existing user points."""
+    """On first boot, seed the all-time ZSET from Ranking XP (leaderboard balance)."""
     if await redis.exists(ALL):
         return
     async with pool.acquire() as con:
-        rows = await con.fetch("SELECT id, points FROM users WHERE points > 0")
+        rows = await con.fetch("SELECT id, ranking_xp FROM users WHERE ranking_xp > 0")
     if rows:
-        mapping = {str(r["id"]): r["points"] for r in rows}
+        mapping = {str(r["id"]): r["ranking_xp"] for r in rows}
         await redis.zadd(ALL, mapping)
 
 

@@ -412,7 +412,7 @@ async def admin_users(request):
     """Search users by Telegram ID or username (admin only)."""
     q = (request.query.get("q") or "").strip()
     pool = request.app["pool"]
-    cols = "id, username, first_name, points, level, status, shadow_banned"
+    cols = "id, username, first_name, points, ranking_xp, level, status, shadow_banned"
     async with pool.acquire() as con:
         if q.isdigit():
             rows = await con.fetch(f"SELECT {cols} FROM users WHERE id=$1", int(q))
@@ -434,13 +434,13 @@ async def admin_users(request):
 async def admin_ranking(request):
     """Admin ranking dashboard: top operators + suspicious accounts."""
     pool = request.app["pool"]
+    cols = "id, username, first_name, points, ranking_xp, level, status, shadow_banned"
     async with pool.acquire() as con:
         top = await con.fetch(
-            "SELECT id, username, first_name, points, level, status, shadow_banned "
-            "FROM users ORDER BY points DESC, id ASC LIMIT 25")
+            f"SELECT {cols} FROM users ORDER BY ranking_xp DESC, id ASC LIMIT 25")
         suspicious = await con.fetch(
-            "SELECT id, username, first_name, points, level, status, shadow_banned FROM users "
-            "WHERE shadow_banned=true OR status='banned' ORDER BY points DESC LIMIT 25")
+            f"SELECT {cols} FROM users WHERE shadow_banned=true OR status='banned' "
+            "ORDER BY ranking_xp DESC LIMIT 25")
     def row(r):
         d = dict(r)
         d["rank_name"] = economy.rank_name(int(r["level"] or 0))
@@ -459,30 +459,76 @@ async def _audit(pool, admin_id, action, target_id, detail):
         pass
 
 
+async def _balances(pool, uid):
+    async with pool.acquire() as con:
+        r = await con.fetchrow("SELECT points, ranking_xp FROM users WHERE id=$1", uid)
+    return (int(r["points"] or 0), int(r["ranking_xp"] or 0)) if r else (None, None)
+
+
+def _read_delta(body):
+    try:
+        return int(body.get("delta", 0)), None
+    except (TypeError, ValueError):
+        return None, web.json_response({"error": "bad_delta"}, status=400)
+
+
 @authed
 @admin_only
-async def admin_user_xp(request):
-    """Adjust a user's ZLN-XP by a signed delta — updates DB, level, leaderboards.
-    new_balance = max(0, old_balance + delta)."""
+async def admin_user_game_xp(request):
+    """Adjust ONLY Game XP (spendable, in-game). Clamps at 0. Does not change ranking."""
     uid = int(request.match_info["id"])
     admin_id = request["user"]["id"]
     body = await request.json() if request.can_read_body else {}
-    try:
-        delta = int(body.get("delta", 0))
-    except (TypeError, ValueError):
-        return web.json_response({"error": "bad_delta"}, status=400)
+    delta, err = _read_delta(body)
+    if err:
+        return err
     if delta == 0:
         return web.json_response({"error": "zero_delta"}, status=400)
     pool, redis = request.app["pool"], request.app["redis"]
-    res = await economy.admin_set_xp(pool, uid, delta, redis=redis)
-    if res is None:
+    g0, r0 = await _balances(pool, uid)
+    if g0 is None:
         return web.json_response({"error": "user_not_found"}, status=404)
-    await _audit(pool, admin_id, "xp_adjust", uid, {
-        "action": "xp_adjust", "amount": delta,
-        "old_balance": res["old_balance"], "new_balance": res["new_balance"]})
+    res = await economy.admin_set_game_xp(pool, uid, delta, redis=redis)
+    await _audit(pool, admin_id, "add_game_xp" if delta > 0 else "subtract_game_xp", uid, {
+        "delta": delta, "old_game_xp": g0, "new_game_xp": res["new"],
+        "old_ranking_xp": r0, "new_ranking_xp": r0})
     return web.json_response({
-        "old_balance": res["old_balance"], "delta": delta, "new_balance": res["new_balance"],
+        "old_game_xp": g0, "new_game_xp": res["new"], "delta": delta,
         "level": res["level"], "rank_name": res["rank_name"]})
+
+
+@authed
+@admin_only
+async def admin_user_ranking_xp(request):
+    """Adjust ONLY Ranking XP (leaderboard position). Clamps at 0. Does not change Game XP."""
+    uid = int(request.match_info["id"])
+    admin_id = request["user"]["id"]
+    body = await request.json() if request.can_read_body else {}
+    delta, err = _read_delta(body)
+    if err:
+        return err
+    if delta == 0:
+        return web.json_response({"error": "zero_delta"}, status=400)
+    pool, redis = request.app["pool"], request.app["redis"]
+    g0, r0 = await _balances(pool, uid)
+    if g0 is None:
+        return web.json_response({"error": "user_not_found"}, status=404)
+    res = await economy.admin_set_ranking_xp(pool, uid, delta, redis=redis)
+    await _audit(pool, admin_id, "add_ranking_xp" if delta > 0 else "subtract_ranking_xp", uid, {
+        "delta": delta, "old_game_xp": g0, "new_game_xp": g0,
+        "old_ranking_xp": r0, "new_ranking_xp": res["new"]})
+    return web.json_response({
+        "old_ranking_xp": r0, "new_ranking_xp": res["new"], "delta": delta})
+
+
+@authed
+@admin_only
+async def admin_recalculate_rankings(request):
+    """Rebuild the all-time leaderboard from users.ranking_xp."""
+    pool, redis = request.app["pool"], request.app["redis"]
+    res = await economy.reseed_rankings(pool, redis)
+    await _audit(pool, request["user"]["id"], "recalculate_rankings", 0, res)
+    return web.json_response({"result": "ok", **res})
 
 
 @authed
@@ -993,7 +1039,9 @@ def setup_api(app: web.Application):
     r.add_post("/api/admin/login", admin_login)
     r.add_get("/api/admin/users", admin_users)
     r.add_get("/api/admin/ranking", admin_ranking)
-    r.add_post("/api/admin/users/{id}/xp", admin_user_xp)
+    r.add_post("/api/admin/users/{id}/game-xp", admin_user_game_xp)
+    r.add_post("/api/admin/users/{id}/ranking-xp", admin_user_ranking_xp)
+    r.add_post("/api/admin/recalculate-rankings", admin_recalculate_rankings)
     r.add_post("/api/admin/users/{id}/reset", admin_user_reset)
     r.add_post("/api/admin/users/{id}/ban", admin_user_ban)
     # admin — proof moderation dashboard

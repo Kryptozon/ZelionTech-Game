@@ -2,10 +2,11 @@ import asyncpg
 
 
 async def top(pool: asyncpg.Pool, limit=10):
+    # Leaderboard ranks by Ranking XP, not Game XP.
     async with pool.acquire() as con:
         return await con.fetch(
-            "SELECT id, username, first_name, points FROM users "
-            "WHERE status='active' ORDER BY points DESC, id ASC LIMIT $1",
+            "SELECT id, username, first_name, ranking_xp AS points FROM users "
+            "WHERE status='active' ORDER BY ranking_xp DESC, id ASC LIMIT $1",
             limit,
         )
 
@@ -13,7 +14,7 @@ async def top(pool: asyncpg.Pool, limit=10):
 async def user_rank(pool: asyncpg.Pool, user_id: int):
     async with pool.acquire() as con:
         return await con.fetchval(
-            "SELECT rank FROM (SELECT id, RANK() OVER (ORDER BY points DESC, id ASC) AS rank "
+            "SELECT rank FROM (SELECT id, RANK() OVER (ORDER BY ranking_xp DESC, id ASC) AS rank "
             "FROM users WHERE status='active') t WHERE id=$1",
             user_id,
         )

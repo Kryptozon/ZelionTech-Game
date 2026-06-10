@@ -91,8 +91,11 @@ async def award_points(pool, user_id, amount, reason, ref_id, redis=None, surge=
                 row = await con.fetchrow("SELECT level FROM users WHERE id=$1", user_id)
                 return {"ok": False, "leveled": False, "level": row["level"] if row else 1,
                         "awarded": 0, "shadow": shadow, "multiplier": mult}
+            # Game XP (points) AND Ranking XP rise together during normal play; they
+            # diverge only via admin adjustments (game-xp vs ranking-xp) and spending.
             row = await con.fetchrow(
-                "UPDATE users SET points = points + $1 WHERE id=$2 RETURNING points, level",
+                "UPDATE users SET points = points + $1, ranking_xp = ranking_xp + $1 "
+                "WHERE id=$2 RETURNING points, level",
                 final, user_id,
             )
             new_level = level_for(row["points"])
@@ -132,10 +135,10 @@ async def deduct_points(pool, user_id, amount, reason, ref_id):
 
 
 # ---------------- Admin XP management ----------------
-async def admin_set_xp(pool, user_id, delta, redis=None):
-    """Admin XP adjustment that affects the REAL game: DB balance, level, and the
-    Redis leaderboards. new_balance = max(0, old + delta). Returns balances or None
-    if the user doesn't exist."""
+async def admin_set_game_xp(pool, user_id, delta, redis=None):
+    """Adjust ONLY Game XP (users.points) — spendable in-game balance. Clamps at 0 and
+    recomputes level. Does NOT change Ranking XP or leaderboard position.
+    Returns {old, new, level, rank_name} or None if the user doesn't exist."""
     delta = int(delta)
     async with pool.acquire() as con:
         async with con.transaction():
@@ -144,31 +147,56 @@ async def admin_set_xp(pool, user_id, delta, redis=None):
                 return None
             old = int(row["points"] or 0)
             new = max(0, old + delta)
-            applied = new - old                     # real change after the 0-floor
-            ref = f"admin_adjust:{user_id}:{int(_now().timestamp() * 1000)}"
+            applied = new - old
+            ref = f"admin_game_xp:{user_id}:{int(_now().timestamp() * 1000)}"
             await con.execute(
-                "INSERT INTO points_ledger(user_id, amount, reason, ref_id) VALUES($1,$2,'admin_adjust',$3)",
+                "INSERT INTO points_ledger(user_id, amount, reason, ref_id) VALUES($1,$2,'admin_game_xp',$3)",
                 user_id, applied, ref)
-            new_level = level_for(new)              # recompute level up OR down
-            await con.execute("UPDATE users SET points=$1, level=$2 WHERE id=$3",
-                              new, new_level, user_id)
+            new_level = level_for(new)
+            await con.execute("UPDATE users SET points=$1, level=$2 WHERE id=$3", new, new_level, user_id)
+    if redis is not None and new_level != int(row["level"] or 1):
+        await redis.delete(f"taphr:{user_id}")      # capacity cache on level change
+    return {"old": old, "new": new, "applied": applied,
+            "level": new_level, "rank_name": rank_name(new_level)}
 
+
+async def admin_set_ranking_xp(pool, user_id, delta, redis=None):
+    """Adjust ONLY Ranking XP (leaderboard position). Clamps at 0 and refreshes the
+    Redis leaderboards. Does NOT touch Game XP / level. Returns {old, new} or None."""
+    delta = int(delta)
+    async with pool.acquire() as con:
+        async with con.transaction():
+            row = await con.fetchrow("SELECT ranking_xp FROM users WHERE id=$1 FOR UPDATE", user_id)
+            if not row:
+                return None
+            old = int(row["ranking_xp"] or 0)
+            new = max(0, old + delta)
+            await con.execute("UPDATE users SET ranking_xp=$1 WHERE id=$2", new, user_id)
+    applied = new - old
     if redis is not None:
-        # All-time board mirrors lifetime points exactly.
+        # All-time board mirrors ranking_xp exactly.
         if new > 0:
             await redis.zadd(LB_ALL, {str(user_id): new})
         else:
             await redis.zrem(LB_ALL, str(user_id))
-        # Weekly board: shift by the real applied delta, floored at 0.
+        # Weekly board: shift by the applied delta, floored at 0.
         wk = await redis.zscore(LB_WEEK, str(user_id))
         wk_new = max(0, (int(wk) if wk is not None else 0) + applied)
         if wk_new > 0:
             await redis.zadd(LB_WEEK, {str(user_id): wk_new})
         else:
             await redis.zrem(LB_WEEK, str(user_id))
-        await redis.delete(f"taphr:{user_id}")      # refresh hourly-capacity cache
-    return {"old_balance": old, "delta": delta, "applied": applied,
-            "new_balance": new, "level": new_level, "rank_name": rank_name(new_level)}
+    return {"old": old, "new": new, "applied": applied}
+
+
+async def reseed_rankings(pool, redis):
+    """Recalculate the all-time leaderboard ZSET from users.ranking_xp."""
+    async with pool.acquire() as con:
+        rows = await con.fetch("SELECT id, ranking_xp FROM users WHERE ranking_xp > 0")
+    await redis.delete(LB_ALL)
+    if rows:
+        await redis.zadd(LB_ALL, {str(r["id"]): int(r["ranking_xp"]) for r in rows})
+    return {"users": len(rows)}
 
 
 # Per-user game-progress tables wiped on a full account reset (all have a user_id column).
@@ -212,10 +240,10 @@ async def reset_account(pool, user_id, redis=None):
         async with con.transaction():
             for t in RESET_TABLES:
                 await con.execute(f"DELETE FROM {t} WHERE user_id=$1", user_id)
-            # Reset progression on the kept account record.
+            # Reset progression on the kept account record (Game XP + Ranking XP).
             await con.execute(
-                "UPDATE users SET points=0, level=1, streak_count=0, last_daily_claim=NULL WHERE id=$1",
-                user_id)
+                "UPDATE users SET points=0, ranking_xp=0, level=1, streak_count=0, "
+                "last_daily_claim=NULL WHERE id=$1", user_id)
             # Restore starter energy.
             await con.execute(
                 "INSERT INTO energy(user_id,current,max_cap,regen_rate,updated_at) "
