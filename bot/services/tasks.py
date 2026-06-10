@@ -3,6 +3,19 @@ from real metrics, claims are validated, and finished chains auto-generate harde
 prestige tiers so there is always something to do (designed for 6–12 months)."""
 from . import economy
 
+# Hard cap: no normal mission/task may reward more than this many ZLN-XP.
+# (Only tiers explicitly flagged legendary_admin_only may exceed it — none do today.)
+MISSION_REWARD_CAP = 500
+MISSION_REWARD_MIN = 10
+
+
+def clamp_reward(reward, legendary_admin_only=False):
+    r = int(reward or 0)
+    if legendary_admin_only:
+        return max(0, r)
+    return max(0, min(r, MISSION_REWARD_CAP))
+
+
 TIER_LADDER = ["Bronze", "Silver", "Gold", "Platinum", "Diamond",
                "Reactor Elite", "Reactor Legend", "Reactor Oracle"]
 
@@ -14,97 +27,98 @@ def _tier_name(idx):
 # chain: (code, name, category, icon, sequential, prestige, [tier...])
 # tier: (title, metric, goal, reward[, tier_name])
 CHAINS = [
+    # ---- Rewards rebalanced LOW + capped at 500 ZLN-XP (no thousands). ----
     ("reactor_validation", "Validate Energy", "reactor", "⚛️", True, True, [
-        ("Validate 1,000 taps", "taps", 1000, 50, "Bronze"),
-        ("Validate 5,000 taps", "taps", 5000, 100, "Bronze"),
-        ("Validate 10,000 taps", "taps", 10000, 200, "Bronze"),
-        ("Validate 25,000 taps", "taps", 25000, 350, "Silver"),
-        ("Validate 50,000 taps", "taps", 50000, 500, "Silver"),
-        ("Validate 100,000 taps", "taps", 100000, 1000, "Gold"),
-        ("Validate 250,000 taps", "taps", 250000, 2000, "Gold"),
-        ("Validate 500,000 taps", "taps", 500000, 3500, "Platinum"),
-        ("Validate 1,000,000 taps", "taps", 1000000, 7500, "Platinum"),
-        ("Validate 5,000,000 taps", "taps", 5000000, 25000, "Reactor Elite"),
-        ("Validate 10,000,000 taps", "taps", 10000000, 50000, "Reactor Elite"),
+        ("Validate 1,000 taps", "taps", 1000, 20, "Bronze"),
+        ("Validate 5,000 taps", "taps", 5000, 40, "Bronze"),
+        ("Validate 10,000 taps", "taps", 10000, 75, "Bronze"),
+        ("Validate 25,000 taps", "taps", 25000, 125, "Silver"),
+        ("Validate 50,000 taps", "taps", 50000, 200, "Silver"),
+        ("Validate 100,000 taps", "taps", 100000, 300, "Gold"),
+        ("Validate 250,000 taps", "taps", 250000, 400, "Gold"),
+        ("Validate 500,000 taps", "taps", 500000, 500, "Platinum"),
+        ("Validate 1,000,000 taps", "taps", 1000000, 500, "Platinum"),
+        ("Validate 5,000,000 taps", "taps", 5000000, 500, "Reactor Elite"),
+        ("Validate 10,000,000 taps", "taps", 10000000, 500, "Reactor Elite"),
     ]),
     ("power_surge", "Power Surge", "reactor", "⚡", True, True, [
-        ("Reach x10 combo", "surge", 10, 100),
-        ("Reach x25 combo", "surge", 25, 250),
-        ("Reach x50 combo", "surge", 50, 500),
-        ("Reach x100 combo", "surge", 100, 1000),
-        ("Reach x250 combo", "surge", 250, 2500),
-        ("Reach x500 combo", "surge", 500, 5000),
-        ("Reach x1000 combo", "surge", 1000, 10000),
+        ("Reach x10 combo", "surge", 10, 25),
+        ("Reach x25 combo", "surge", 25, 50),
+        ("Reach x50 combo", "surge", 50, 75),
+        ("Reach x100 combo", "surge", 100, 100),
+        ("Reach x250 combo", "surge", 250, 200),
+        ("Reach x500 combo", "surge", 500, 300),
+        ("Reach x1000 combo", "surge", 1000, 500),
     ]),
     ("reactor_core", "Reactor Core", "upgrade", "⚛️", True, False, [
-        ("Reactor Core Lv5", "reactor_core", 5, 250),
-        ("Reactor Core Lv10", "reactor_core", 10, 500),
-        ("Reactor Core Lv20", "reactor_core", 20, 1500),
-        ("Reactor Core Lv35", "reactor_core", 35, 3000),
-        ("Reactor Core Lv50", "reactor_core", 50, 10000),
+        ("Reactor Core Lv5", "reactor_core", 5, 50),
+        ("Reactor Core Lv10", "reactor_core", 10, 100),
+        ("Reactor Core Lv20", "reactor_core", 20, 200),
+        ("Reactor Core Lv35", "reactor_core", 35, 350),
+        ("Reactor Core Lv50", "reactor_core", 50, 500),
     ]),
     ("battery_chain", "Battery Pack", "upgrade", "🔋", True, False, [
-        ("Battery Pack Lv5", "battery_pack", 5, 200),
-        ("Battery Pack Lv10", "battery_pack", 10, 400),
-        ("Battery Pack Lv25", "battery_pack", 25, 1200),
-        ("Battery Pack Lv50", "battery_pack", 50, 5000),
+        ("Battery Pack Lv5", "battery_pack", 5, 40),
+        ("Battery Pack Lv10", "battery_pack", 10, 80),
+        ("Battery Pack Lv25", "battery_pack", 25, 200),
+        ("Battery Pack Lv50", "battery_pack", 50, 400),
     ]),
     ("solar_chain", "Solar Amplifier", "upgrade", "☀️", True, False, [
-        ("Solar Amplifier Lv5", "solar_amplifier", 5, 200),
-        ("Solar Amplifier Lv10", "solar_amplifier", 10, 400),
-        ("Solar Amplifier Lv25", "solar_amplifier", 25, 1200),
-        ("Solar Amplifier Lv50", "solar_amplifier", 50, 5000),
+        ("Solar Amplifier Lv5", "solar_amplifier", 5, 40),
+        ("Solar Amplifier Lv10", "solar_amplifier", 10, 80),
+        ("Solar Amplifier Lv25", "solar_amplifier", 25, 200),
+        ("Solar Amplifier Lv50", "solar_amplifier", 50, 400),
     ]),
     ("quantum_chain", "Quantum Reactor", "upgrade", "🧪", True, False, [
-        ("Quantum Reactor Lv5", "quantum_reactor", 5, 500),
-        ("Quantum Reactor Lv10", "quantum_reactor", 10, 1500),
-        ("Quantum Reactor Lv25", "quantum_reactor", 25, 5000),
-        ("Quantum Reactor Lv50", "quantum_reactor", 50, 20000),
+        ("Quantum Reactor Lv5", "quantum_reactor", 5, 75),
+        ("Quantum Reactor Lv10", "quantum_reactor", 10, 150),
+        ("Quantum Reactor Lv25", "quantum_reactor", 25, 300),
+        ("Quantum Reactor Lv50", "quantum_reactor", 50, 500),
     ]),
     ("community", "Community Voice", "community", "💬", True, True, [
-        ("Send 10 valid messages", "messages", 10, 50),
-        ("Send 50 valid messages", "messages", 50, 200),
-        ("Send 100 valid messages", "messages", 100, 400),
-        ("Send 250 valid messages", "messages", 250, 800),
-        ("Send 500 valid messages", "messages", 500, 1500),
-        ("Send 1,000 valid messages", "messages", 1000, 3000),
+        ("Send 25 valid messages", "messages", 25, 25),
+        ("Send 100 valid messages", "messages", 100, 75),
+        ("Send 250 valid messages", "messages", 250, 125),
+        ("Send 500 valid messages", "messages", 500, 200),
+        ("Send 1,000 valid messages", "messages", 1000, 400),
+        ("Send 2,500 valid messages", "messages", 2500, 500),
     ]),
     ("replies", "Helpful Operator", "community", "↩️", True, True, [
-        ("Reply to 10 users", "replies", 10, 100),
-        ("Reply to 50 users", "replies", 50, 500),
-        ("Reply to 100 users", "replies", 100, 1000),
+        ("Reply to 10 users", "replies", 10, 50),
+        ("Reply to 50 users", "replies", 50, 150),
+        ("Reply to 100 users", "replies", 100, 300),
     ]),
     ("discussion", "Discussion Leader", "community", "🗣️", True, True, [
-        ("Participate 3 times", "discussion", 3, 150),
-        ("Participate 10 times", "discussion", 10, 500),
-        ("Participate 25 times", "discussion", 25, 1500),
+        ("Participate 3 times", "discussion", 3, 30),
+        ("Participate 10 times", "discussion", 10, 100),
+        ("Participate 25 times", "discussion", 25, 250),
     ]),
     ("quiz", "Quiz Scholar", "quiz", "🧠", True, True, [
-        ("Complete 5 quizzes", "quiz_attempts", 5, 100),
-        ("Get 25 correct answers", "quiz_correct", 25, 250),
-        ("Get 50 correct answers", "quiz_correct", 50, 500),
-        ("Get 100 correct answers", "quiz_correct", 100, 1000),
-        ("3-day streak", "login_streak", 3, 150),
-        ("7-day streak", "login_streak", 7, 500),
-        ("30-day streak", "login_streak", 30, 2500),
+        ("Get 10 correct answers", "quiz_correct", 10, 25),
+        ("Get 50 correct answers", "quiz_correct", 50, 75),
+        ("Get 100 correct answers", "quiz_correct", 100, 150),
+        ("Get 500 correct answers", "quiz_correct", 500, 300),
+        ("3-day streak", "login_streak", 3, 25),
+        ("7-day streak", "login_streak", 7, 50),
+        ("30-day streak", "login_streak", 30, 100),
     ]),
     ("puzzle", "Intelligence Solver", "puzzle", "🧩", True, True, [
-        ("Solve 1 puzzle", "puzzles", 1, 100),
-        ("Solve 5 puzzles", "puzzles", 5, 300),
-        ("Solve 10 puzzles", "puzzles", 10, 500),
-        ("Solve 25 puzzles", "puzzles", 25, 1500),
-        ("Solve 50 puzzles", "puzzles", 50, 3000),
-        ("Solve 100 puzzles", "puzzles", 100, 7500),
-        ("Solve a weekly mystery", "puzzles_legendary", 1, 2000),
-        ("Solve 3 elite mysteries", "puzzles_legendary", 3, 5000),
+        ("Solve 1 puzzle", "puzzles", 1, 25),
+        ("Solve 5 puzzles", "puzzles", 5, 50),
+        ("Solve 20 puzzles", "puzzles", 20, 150),
+        ("Solve 50 puzzles", "puzzles", 50, 300),
+        ("Solve 100 puzzles", "puzzles", 100, 500),
+        ("Solve 250 puzzles", "puzzles", 250, 500),
+        ("Solve a weekly mystery", "puzzles_legendary", 1, 200),
+        ("Solve 3 elite mysteries", "puzzles_legendary", 3, 500),
     ]),
     ("social", "Social Operator", "social", "📡", False, False, [
         ("Join Telegram Channel", "social_telegram_official", 1, 30),
         ("Join Telegram Group", "social_telegram_global", 1, 35),
         ("Subscribe YouTube", "social_youtube", 1, 50),
-        ("Follow X", "social_x", 1, 50),
-        ("Follow Instagram", "social_instagram", 1, 50),
-        ("Complete all socials", "social_count", 5, 200),
+        ("Follow X", "social_x", 1, 40),
+        ("Follow Instagram", "social_instagram", 1, 40),
+        ("Complete all socials", "social_count", 5, 100),
     ]),
 ]
 
@@ -120,19 +134,54 @@ async def ensure_seed(pool):
                 code, name, cat, icon, seq, prestige, hidden, sort)
             for i, tier in enumerate(tiers, start=1):
                 title, metric, goal, reward = tier[0], tier[1], tier[2], tier[3]
+                reward = clamp_reward(reward)        # hard cap: never above 500 ZLN-XP
                 tname = tier[4] if len(tier) > 4 else _tier_name(i)
-                # Upsert so re-seeding applies updated goals/rewards/titles.
+                # Upsert so re-seeding applies updated goals/titles — but NEVER overwrite a
+                # reward an admin changed in the dashboard (admin_overridden guard).
                 await con.execute(
                     """INSERT INTO task_definitions(chain_id,tier_index,title,metric,goal,reward,tier_name)
                        VALUES($1,$2,$3,$4,$5,$6,$7)
                        ON CONFLICT (chain_id,tier_index)
-                       DO UPDATE SET title=$3, metric=$4, goal=$5, reward=$6, tier_name=$7""",
+                       DO UPDATE SET title=$3, metric=$4, goal=$5, tier_name=$7,
+                         reward = CASE WHEN COALESCE(task_definitions.admin_overridden, FALSE)
+                                       THEN task_definitions.reward ELSE $6 END""",
                     cid, i, title, metric, goal, reward, tname)
 
 
 async def count_chains(pool):
     async with pool.acquire() as con:
         return await con.fetchval("SELECT count(*) FROM task_chains") or 0
+
+
+# ---------------- Admin: Mission Rewards editor ----------------
+async def admin_list_tasks(pool):
+    async with pool.acquire() as con:
+        rows = await con.fetch(
+            "SELECT td.id, td.title, td.goal, td.metric, td.reward, td.active, "
+            "td.legendary_admin_only, tc.name AS chain, tc.icon, tc.sort "
+            "FROM task_definitions td JOIN task_chains tc ON tc.id=td.chain_id "
+            "ORDER BY tc.sort, td.tier_index")
+    return [dict(r) for r in rows]
+
+
+async def admin_set_reward(pool, task_id, reward):
+    """Set a task reward, enforcing the hard cap server-side. Marks it admin_overridden
+    so the boot re-seed won't reset it."""
+    async with pool.acquire() as con:
+        leg = await con.fetchval(
+            "SELECT legendary_admin_only FROM task_definitions WHERE id=$1", task_id)
+        if leg is None:
+            return None
+        r = clamp_reward(reward, bool(leg))
+        await con.execute(
+            "UPDATE task_definitions SET reward=$1, admin_overridden=TRUE WHERE id=$2", r, task_id)
+    return r
+
+
+async def admin_set_active(pool, task_id, active):
+    async with pool.acquire() as con:
+        await con.execute("UPDATE task_definitions SET active=$1 WHERE id=$2", bool(active), task_id)
+    return bool(active)
 
 
 # ---------------- Metrics (server-side truth) ----------------
@@ -257,16 +306,20 @@ async def claim(pool, redis, user_id, task_id):
     if m.get(d["metric"], 0) < d["goal"]:
         return {"error": "incomplete", "progress": m.get(d["metric"], 0), "goal": d["goal"]}
 
+    # Hard cap enforced again at claim time (defends against any stale/oversized DB value).
+    reward = clamp_reward(d["reward"], bool(d.get("legendary_admin_only")))
     async with pool.acquire() as con:
         await con.execute(
             "INSERT INTO task_claims(user_id, task_id, reward) VALUES($1,$2,$3) ON CONFLICT DO NOTHING",
-            user_id, task_id, d["reward"])
-    await economy.award_points(pool, user_id, d["reward"], "task", f"task:{task_id}:{user_id}", redis=redis)
+            user_id, task_id, reward)
+    # Idempotent: ref_id is unique per (user, task) so a re-claim never double-pays.
+    # award_points may level the user up but NEVER awards extra XP for leveling (no loop).
+    await economy.award_points(pool, user_id, reward, "task", f"task:{task_id}:{user_id}", redis=redis)
 
     unlocked = None
     if ch["sequential"] and ch["prestige"]:
         unlocked = await _maybe_prestige(pool, ch["id"], d)
-    return {"ok": True, "reward": d["reward"], "tier_name": d["tier_name"],
+    return {"ok": True, "reward": reward, "tier_name": d["tier_name"],
             "title": d["title"], "new_tier": unlocked}
 
 
@@ -277,7 +330,8 @@ async def _maybe_prestige(pool, chain_id, last_def):
             return None
         new_idx = maxidx + 1
         goal = int(last_def["goal"] * 3)
-        reward = int(last_def["reward"] * 2)
+        # Prestige goals keep growing, but rewards STAY capped (no reward inflation).
+        reward = clamp_reward(int(last_def["reward"]) + 50)
         verb = {"taps": "Validate", "surge": "Reach x", "messages": "Send",
                 "quiz_correct": "Answer", "puzzles": "Solve", "replies": "Reply to",
                 "discussion": "Participate"}.get(last_def["metric"], "Reach")

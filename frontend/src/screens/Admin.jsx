@@ -22,7 +22,7 @@ export default function Admin({ me, admin, flash }) {
           onClick={() => { adminToken.clear(); setAuthed(false); flash('Locked 🔒') }}>Lock</button>
       </div>
       <div className="flex gap-2 flex-wrap">
-        {[['puzzles', 'Puzzles'], ['ranks', 'Ranks'], ['proofs', 'Missions'], ['questions', 'Quiz'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
+        {[['puzzles', 'Puzzles'], ['ranks', 'Ranks'], ['rewards', 'Rewards'], ['proofs', 'Missions'], ['questions', 'Quiz'], ['users', 'Users'], ['kb', 'KB']].map(([id, l]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`flex-1 btn ${tab === id ? 'btn-gold' : 'btn-ghost'}`}>{l}</button>
         ))}
@@ -31,6 +31,7 @@ export default function Admin({ me, admin, flash }) {
       {tab === 'questions' && <Questions flash={flash} />}
       {tab === 'puzzles' && <Puzzles flash={flash} />}
       {tab === 'ranks' && <RanksAdmin flash={flash} />}
+      {tab === 'rewards' && <RewardsAdmin flash={flash} />}
       {tab === 'users' && <Users flash={flash} />}
       {tab === 'kb' && <KB flash={flash} />}
     </div>
@@ -60,6 +61,7 @@ function AdminLogin({ id, onPass, flash }) {
       <div className="font-mono text-gold text-sm">{id ?? 'detecting…'}</div>
       <div className="text-xs text-white/50 mt-3">Enter Admin Password</div>
       <input type="password" value={pw} autoFocus
+        autoCapitalize="none" autoCorrect="off" autoComplete="off" spellCheck={false}
         onChange={(e) => setPw(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && submit()}
         placeholder="Admin Password"
@@ -245,6 +247,56 @@ function RanksAdmin({ flash }) {
       <div className="text-[10px] text-white/40 text-center">
         Leaderboard ranks by Ranking XP. Weekly board auto-resets each week; lifetime ranking is permanent.
       </div>
+    </div>
+  )
+}
+
+function RewardRow({ t, cap, flash, reload }) {
+  const [val, setVal] = useState(String(t.reward))
+  const save = async () => {
+    const n = parseInt(val, 10)
+    if (Number.isNaN(n) || n < 0) return flash('Enter a valid amount', 'red')
+    try { const r = await api.adminTaskReward(t.id, n); setVal(String(r.reward)); flash(`✅ Reward set → ${r.reward} (cap ${r.cap})`); reload && reload() }
+    catch (e) { flash(e.message, 'red') }
+  }
+  const toggle = async () => {
+    try { await api.adminTaskActive(t.id, !t.active); flash(t.active ? 'Disabled' : 'Enabled'); reload && reload() }
+    catch (e) { flash(e.message, 'red') }
+  }
+  return (
+    <div className="flex items-center gap-2 py-1.5 border-b border-white/5 last:border-0">
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-semibold truncate">{t.title}</div>
+        <div className="text-[10px] text-white/40">goal {Number(t.goal).toLocaleString()} {t.metric}</div>
+      </div>
+      <input value={val} onChange={(e) => setVal(e.target.value.replace(/[^0-9]/g, ''))}
+        className="w-16 bg-black/40 border border-gold/20 rounded-lg px-2 py-1 text-xs text-center outline-none" />
+      <Btn gold onClick={save}>Save</Btn>
+      <Btn className={t.active ? '' : '!bg-rose-700/60'} onClick={toggle}>{t.active ? 'On' : 'Off'}</Btn>
+    </div>
+  )
+}
+
+function RewardsAdmin({ flash }) {
+  const [d, setD] = useState(null)
+  const load = () => api.adminTasks().then(setD).catch((e) => flash(e.message, 'red'))
+  useEffect(() => { load() }, [])
+  if (!d) return <Spinner />
+  const byChain = {}
+  d.tasks.forEach((t) => { (byChain[t.chain] = byChain[t.chain] || []).push(t) })
+  return (
+    <div className="space-y-3">
+      <Card>
+        <div className="text-sm font-bold">🎯 Mission Rewards</div>
+        <div className="text-[11px] text-white/50 mt-1">Edit ZLN-XP per task. Hard cap enforced server-side:
+          <b className="text-gold"> max {d.reward_cap} ZLN-XP</b>. Toggle a task On/Off.</div>
+      </Card>
+      {Object.entries(byChain).map(([chain, tasks]) => (
+        <Card key={chain}>
+          <div className="text-xs font-bold text-gold mb-1">{tasks[0].icon} {chain}</div>
+          {tasks.map((t) => <RewardRow key={t.id} t={t} cap={d.reward_cap} flash={flash} reload={load} />)}
+        </Card>
+      ))}
     </div>
   )
 }

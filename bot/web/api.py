@@ -1,7 +1,11 @@
 """Mini App REST API (aiohttp). All endpoints authenticate via Telegram initData."""
+import os
 import json
 import time
+import logging
 from aiohttp import web
+
+log = logging.getLogger("zelion.api")
 
 from ..config import settings
 from .auth import validate_init_data, make_admin_token, verify_admin_token
@@ -379,8 +383,21 @@ async def admin_login(request):
     even if the Telegram ID isn't recognised (owner can always get in)."""
     uid = request["user"]["id"]
     body = await request.json() if request.can_read_body else {}
-    if not settings.check_admin_password(body.get("password", "")):
-        return web.json_response({"error": "wrong_password"}, status=403)
+    pw = body.get("password", "")
+    hash_exists = bool(settings.ADMIN_PASSWORD_HASH)
+    ok = settings.check_admin_password(pw)
+    # TEMP login diagnostics (no password value, only its length).
+    if settings.ADMIN_DEBUG:
+        log.info("admin_login: tg_id=%s is_admin_id=%s hash_exists=%s pw_len=%s result=%s",
+                 uid, settings.is_admin(uid), hash_exists, len(pw or ""), ok)
+    if not ok:
+        if not hash_exists:
+            log.warning("admin_login DENIED: no admin password env set — set ADMIN_DASHBOARD_PASSWORD "
+                        "(or legacy ADMIN_PASSWORD) in the environment.")
+        return web.json_response(
+            {"error": "wrong_password",
+             "hint": "password_not_configured" if not hash_exists else "password_mismatch"},
+            status=403)
     return web.json_response({"token": make_admin_token(uid), "ttl": 12 * 3600})
 
 
@@ -393,16 +410,20 @@ async def admin_debug(request):
     token = request.headers.get("X-Admin-Token") or request.query.get("admin_token", "")
     is_admin = settings.is_admin(uid)
     token_ok = verify_admin_token(token, uid)
+    # Which password env var (if any) is actually present — name only, never the value.
+    pw_env_name = ("ADMIN_DASHBOARD_PASSWORD" if os.getenv("ADMIN_DASHBOARD_PASSWORD")
+                   else "ADMIN_PASSWORD" if os.getenv("ADMIN_PASSWORD")
+                   else "ADMIN_PASSWORD_HASH" if os.getenv("ADMIN_PASSWORD_HASH") else None)
     return web.json_response({
         "telegram_id": uid,
-        "telegram_id_type": type(uid).__name__,
+        "is_admin_id": is_admin,
+        "password_hash_exists": bool(settings.ADMIN_PASSWORD_HASH),
+        "env_loaded": pw_env_name is not None,
+        # extra diagnostics
+        "password_env_var": pw_env_name,
         "admin_ids_loaded": settings.ADMIN_IDS,
-        "is_admin": is_admin,
         "token_valid": token_ok,
         "auth_source": "telegram_id" if is_admin else ("password_token" if token_ok else "denied"),
-        "denied_reason": None if (is_admin or token_ok)
-                         else ("ADMIN_IDS is empty — env var not loaded" if not settings.ADMIN_IDS
-                               else "telegram_id not in ADMIN_IDS and no valid password token"),
     })
 
 
@@ -529,6 +550,42 @@ async def admin_recalculate_rankings(request):
     res = await economy.reseed_rankings(pool, redis)
     await _audit(pool, request["user"]["id"], "recalculate_rankings", 0, res)
     return web.json_response({"result": "ok", **res})
+
+
+@authed
+@admin_only
+async def admin_tasks(request):
+    """Game Settings → Mission Rewards: list every task with its reward + cap."""
+    rows = await tasksvc.admin_list_tasks(request.app["pool"])
+    return web.json_response({"tasks": rows, "reward_cap": tasksvc.MISSION_REWARD_CAP})
+
+
+@authed
+@admin_only
+async def admin_task_reward(request):
+    """Edit a task reward (hard-capped server-side at 500 ZLN-XP)."""
+    tid = int(request.match_info["id"])
+    body = await request.json() if request.can_read_body else {}
+    try:
+        reward = int(body.get("reward", 0))
+    except (TypeError, ValueError):
+        return web.json_response({"error": "bad_reward"}, status=400)
+    r = await tasksvc.admin_set_reward(request.app["pool"], tid, reward)
+    if r is None:
+        return web.json_response({"error": "not_found"}, status=404)
+    await _audit(request.app["pool"], request["user"]["id"], "task_reward_set", tid,
+                 {"requested": reward, "applied": r, "cap": tasksvc.MISSION_REWARD_CAP})
+    return web.json_response({"result": "ok", "reward": r, "cap": tasksvc.MISSION_REWARD_CAP})
+
+
+@authed
+@admin_only
+async def admin_task_active(request):
+    """Toggle a task active/inactive."""
+    tid = int(request.match_info["id"])
+    body = await request.json() if request.can_read_body else {}
+    active = await tasksvc.admin_set_active(request.app["pool"], tid, bool(body.get("active", True)))
+    return web.json_response({"result": "ok", "active": active})
 
 
 @authed
@@ -1042,6 +1099,9 @@ def setup_api(app: web.Application):
     r.add_post("/api/admin/users/{id}/game-xp", admin_user_game_xp)
     r.add_post("/api/admin/users/{id}/ranking-xp", admin_user_ranking_xp)
     r.add_post("/api/admin/recalculate-rankings", admin_recalculate_rankings)
+    r.add_get("/api/admin/tasks", admin_tasks)
+    r.add_post("/api/admin/tasks/{id}/reward", admin_task_reward)
+    r.add_post("/api/admin/tasks/{id}/active", admin_task_active)
     r.add_post("/api/admin/users/{id}/reset", admin_user_reset)
     r.add_post("/api/admin/users/{id}/ban", admin_user_ban)
     # admin — proof moderation dashboard
